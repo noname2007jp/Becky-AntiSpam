@@ -1,5 +1,13 @@
 # 開発メモ
 
+## 確定した実行・ビルド環境
+
+- Becky!: Internet Mail Ver.2.83.11
+- Becky!アプリケーション: 32bit / x86
+- OS: 64bit Windows
+- プラグインDLL: Win32 / x86（Becky!本体と同じビット数）
+- CMake generator platform: `-A Win32`
+
 ## SDK調査結果
 
 アップロードされた `B2PinSDK-26400.zip` を調査済み。詳細は [SDK-ANALYSIS.md](SDK-ANALYSIS.md) を参照。
@@ -10,15 +18,16 @@
 - 受信後コールバックは `BKC_OnRetrieve`。
 - 手動判定用にメニュー登録、選択メール列挙、メールソース取得、フォルダ移動APIがある。
 - `BKC_OnPlugInInfo` は必須で、プラグイン名とベンダー名を設定する。
-- サンプルのVisual StudioプロジェクトはWin32構成のみ。x64構成は含まれない。
+- SDKのサンプルプロジェクトはWin32構成のみ。
 
-## 実装前に必ず確認すること
+## 次の実装ステップ
 
-1. Becky!本体のビット数と利用バージョンを確認する。64bit Windows上でも、32bit Becky!にはWin32/x86 DLLをロードする。
-2. SDKの文字セット設定と `LPCTSTR` / `LPCSTR` の混在を確認する。
-3. `BKC_OnBeforeFilter2` の `lppParam` のメモリ確保・寿命をSDKサンプルと実機で検証する。
-4. 受信時コールバックのスレッド条件、処理時間、標準フィルターとの優先順位を確認する。
-5. 最小DLLを作成し、Becky!へのロードを確認してから判定エンジンを接続する。
+1. SDKヘッダーとサンプルのエクスポート定義をプロジェクトへ取り込む。
+2. Visual Studio 2022 / Win32で最小DLL（PlugInInfo / Start / Exit）を作成する。
+3. Becky! 2.83.11がDLLを認識・ロードするか確認する。
+4. `BKC_OnBeforeFilter2` で受信メールを読み取り、判定だけを行う監査モードを実装する。
+5. 手動メニューと選択メール取得を実装する。
+6. フォルダ移動は明示設定後に有効化し、標準フィルターとの共存を検証する。
 
 ## 実装上の安全策
 
