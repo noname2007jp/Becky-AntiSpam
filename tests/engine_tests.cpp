@@ -1,4 +1,7 @@
 #include "antispam.hpp"
+#include "sqlite_store.hpp"
+
+#include <filesystem>
 
 #include <cassert>
 #include <iostream>
