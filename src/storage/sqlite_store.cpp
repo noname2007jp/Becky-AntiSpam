@@ -325,6 +325,8 @@ bool SqliteStore::compact(std::size_t max_vocabulary,
         if (error) *error = "履歴保持日数は0以上を指定してください";
         return false;
     }
+    // Keep one immediately preceding snapshot; never prune without a recoverable copy.
+    if (!backup_to(database_path_ + ".precompact.bak", error)) return false;
     if (!begin(db_, error)) return false;
 
     Statement rare(db_, "DELETE FROM token_stats WHERE (spam_docs+ham_docs) < ?1");
