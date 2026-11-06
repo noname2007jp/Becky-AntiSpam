@@ -101,12 +101,16 @@ std::vector<std::string> SimpleJapaneseTokenizer::split(const std::string& text)
             const auto first = i;
             while (i < runes.size() && is_japanese(runes[i].value)) ++i;
             const auto count = i - first;
-            // Retain katakana compounds as a useful whole-word feature.
-            bool all_katakana = true;
-            for (std::size_t j = first; j < i; ++j)
-                if (!is_katakana(runes[j].value)) { all_katakana = false; break; }
-            if (all_katakana && count >= 2 && count <= 16)
-                add(text.substr(runes[first].begin, runes[i - 1].end - runes[first].begin));
+            // Retain katakana compounds as whole-word features, even inside
+            // mixed kanji/kana phrases (e.g. "無料キャンペーン").
+            for (std::size_t j = first; j < i;) {
+                if (!is_katakana(runes[j].value)) { ++j; continue; }
+                const auto kata_begin = j;
+                while (j < i && is_katakana(runes[j].value)) ++j;
+                if (j - kata_begin >= 2 && j - kata_begin <= 16)
+                    add(text.substr(runes[kata_begin].begin,
+                                    runes[j - 1].end - runes[kata_begin].begin));
+            }
             // Overlapping character bigrams work across kanji/kana boundaries.
             for (std::size_t j = first; j + 1 < i; ++j) {
                 if (runes[j + 1].end - runes[j].begin <= 16)
