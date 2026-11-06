@@ -1,9 +1,8 @@
 #include "antispam.hpp"
 #include "sqlite_store.hpp"
 
-#include <filesystem>
-
 #include <cassert>
+#include <filesystem>
 #include <iostream>
 
 using namespace beckyas;
@@ -50,8 +49,58 @@ int main() {
     model.decay(0.5);
     assert(model.spam_samples() <= before_decay);
     const auto unchanged = model.spam_samples();
-    model.decay(1.0); // invalid factor is ignored
+    model.decay(1.0);
     assert(model.spam_samples() == unchanged);
-    std::cout << "All Becky AntiSpam engine tests passed.\n";
+
+    const auto temp = std::filesystem::temp_directory_path();
+    const auto db_path = (temp / "becky_antispam_storage_test.sqlite3").string();
+    const auto backup_path = (temp / "becky_antispam_storage_backup.sqlite3").string();
+    std::filesystem::remove(db_path);
+    std::filesystem::remove(db_path + "-wal");
+    std::filesystem::remove(db_path + "-shm");
+    std::filesystem::remove(backup_path);
+
+    std::string error;
+    SqliteStore store(db_path);
+    assert(store.open(&error));
+    const std::string spam_hash(64, 'a');
+    const std::string ham_hash(64, 'b');
+    assert(store.train_once(spam_hash, "free prize winner offer", true, &error) == TrainStatus::Trained);
+    assert(store.train_once(spam_hash, "free prize winner offer", true, &error) == TrainStatus::Duplicate);
+    assert(store.train_once(ham_hash, "meeting agenda project", false, &error) == TrainStatus::Trained);
+
+    BayesianModel restored;
+    assert(store.load_model(restored, &error));
+    assert(restored.spam_samples() == 1);
+    assert(restored.ham_samples() == 1);
+    assert(restored.spam_probability("free prize winner") >
+           restored.spam_probability("meeting agenda"));
+
+    StoreStats stats;
+    assert(store.get_stats(stats, &error));
+    assert(stats.spam_samples == 1 && stats.ham_samples == 1);
+    assert(stats.training_receipts == 2);
+    assert(stats.vocabulary_size >= 5);
+
+    std::string integrity;
+    assert(store.integrity_check(integrity, &error));
+    assert(integrity == "ok");
+    assert(store.backup_to(backup_path, &error));
+    store.close();
+
+    SqliteStore reopened(db_path);
+    assert(reopened.open(&error));
+    assert(reopened.train_once(spam_hash, "free prize winner offer", true, &error) == TrainStatus::Duplicate);
+    assert(reopened.load_model(restored, &error));
+    assert(restored.spam_samples() == 1);
+    assert(reopened.compact(3, 1, 365, &error));
+    assert(reopened.integrity_check(integrity, &error));
+    reopened.close();
+
+    std::filesystem::remove(db_path);
+    std::filesystem::remove(db_path + "-wal");
+    std::filesystem::remove(db_path + "-shm");
+    std::filesystem::remove(backup_path);
+    std::cout << "All Becky AntiSpam engine and storage tests passed.\n";
     return 0;
 }
