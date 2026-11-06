@@ -1,4 +1,5 @@
-#include "antispam.hpp"\n#include "tokenizer.hpp"
+#include "antispam.hpp"
+#include "tokenizer.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -17,7 +18,7 @@ bool contains(const std::string& haystack, const std::string& needle) {
     return lower(haystack).find(needle) != std::string::npos;
 }
 std::string combined_text(const Message& m) {
-    return m.subject + "\n" + m.headers + "\n" + m.body;
+    return classifier_text(m);
 }
 void add(Result& r, const char* id, int score, const char* reason) {
     r.score += score;
@@ -25,7 +26,12 @@ void add(Result& r, const char* id, int score, const char* reason) {
 }
 } // namespace
 
-std::string classifier_text(const Message& message) {\n    // Classification and caller-side training must use identical input fields.\n    return message.from + "\n" + message.subject + "\n" + message.headers + "\n" + message.body;\n}\n\nBayesianModel::BayesianModel(std::size_t max_vocabulary)
+std::string classifier_text(const Message& message) {
+    // Classification and caller-side training must use identical input fields.
+    return message.from + "\n" + message.subject + "\n" + message.headers + "\n" + message.body;
+}
+
+BayesianModel::BayesianModel(std::size_t max_vocabulary)
     : max_vocabulary_(std::max<std::size_t>(1, max_vocabulary)) {}
 
 void BayesianModel::restore(std::size_t spam_samples, std::size_t ham_samples,
