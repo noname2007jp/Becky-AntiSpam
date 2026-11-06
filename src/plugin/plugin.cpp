@@ -5,6 +5,7 @@
 #include "mail_pipeline.hpp"
 #include "sqlite_store.hpp"
 #include "tokenizer.hpp"
+#include "data_paths.hpp"
 
 #include <cstdio>
 #include <cstdint>
@@ -71,20 +72,17 @@ void test_log(const char* level, const std::string& message) noexcept {
 }
 
 bool initialize_plugin() {
-    wchar_t appdata[MAX_PATH] = {};
-    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA | CSIDL_FLAG_CREATE,
-                                nullptr, SHGFP_TYPE_CURRENT, appdata))) {
-        OutputDebugStringA("BeckyAntiSpam: cannot resolve APPDATA path.\n");
+    std::wstring path_error;
+    if (!beckyas::plugin::prepare_data_directory(g_data_dir, &path_error)) {
+        OutputDebugStringW((L"BeckyAntiSpam: " + path_error + L"\\n").c_str());
         return false;
     }
-    const int n = WideCharToMultiByte(CP_UTF8, 0, appdata, -1, nullptr, 0, nullptr, nullptr);
-    if (n <= 1) return false;
-    std::string base(static_cast<std::size_t>(n), '\0');
-    if (WideCharToMultiByte(CP_UTF8, 0, appdata, -1, base.data(), n, nullptr, nullptr) <= 0) return false;
-    base.pop_back();
-    const std::string dir = base + "\\BeckyAntiSpam";
-    g_data_dir = std::filesystem::u8path(dir);
-    std::filesystem::create_directories(g_data_dir);
+    const std::wstring db_path = (g_data_dir / L"training.sqlite3").wstring();
+    const int db_bytes = WideCharToMultiByte(CP_UTF8, 0, db_path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (db_bytes <= 1) return false;
+    std::string db_utf8(static_cast<std::size_t>(db_bytes), '\\0');
+    if (WideCharToMultiByte(CP_UTF8, 0, db_path.c_str(), -1, db_utf8.data(), db_bytes, nullptr, nullptr) <= 0) return false;
+    db_utf8.pop_back();
     g_audit_log = g_data_dir / L"operation.log";
     g_debug_log = g_data_dir / L"test-detail.log";
 
@@ -95,7 +93,7 @@ bool initialize_plugin() {
         (g_log_settings.enabled ? "on" : "off") + " test_mode=" +
         (g_log_settings.test_mode ? "on" : "off"));
 
-    g_store = std::make_unique<beckyas::SqliteStore>(dir + "\\training.sqlite3");
+    g_store = std::make_unique<beckyas::SqliteStore>(db_utf8);
     g_pipeline = std::make_unique<beckyas::MailPipeline>(*g_store);
     std::string error;
     if (!g_pipeline->initialize(&error)) {
