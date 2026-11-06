@@ -3,6 +3,7 @@
 #include "message_parser.hpp"
 #include "sha256.hpp"
 #include "tokenizer.hpp"
+#include "mail_pipeline.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -219,6 +220,56 @@ int main() {
     std::filesystem::remove(capped_path + "-wal");
     std::filesystem::remove(capped_path + "-shm");
 
+    // End-to-end parse -> classify -> SHA-256 deduplication -> SQLite training.
+    const auto pipeline_path = (temp / "becky_antispam_pipeline.sqlite3").string();
+    std::filesystem::remove(pipeline_path);
+    std::filesystem::remove(pipeline_path + "-wal");
+    std::filesystem::remove(pipeline_path + "-shm");
+    {
+        SqliteStore pipeline_store(pipeline_path);
+        MailPipeline pipeline(pipeline_store);
+        assert(pipeline.initialize(&error));
+        for (int i = 0; i < 6; ++i) {
+            const auto spam_mail =
+                "Message-ID: <spam" + std::to_string(i) + "@example.test>\r\n"
+                "From: sender@example.test\r\n"
+                "Subject: =?UTF-8?B?5pel5pys44Gu5Y+W6Kqt?=\r\n"
+                "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
+                "無料キャンペーン 当選 賞金を受け取る";
+            const auto ham_mail =
+                "Message-ID: <ham" + std::to_string(i) + "@example.test>\r\n"
+                "From: colleague@example.test\r\n"
+                "Subject: 会議資料\r\n"
+                "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
+                "会議資料 議事録と予定を共有します";
+            assert(pipeline.train(spam_mail, true, nullptr, &error) == TrainStatus::Trained);
+            assert(pipeline.train(ham_mail, false, nullptr, &error) == TrainStatus::Trained);
+        }
+        const std::string new_spam =
+            "Message-ID: <newspam@example.test>\r\n"
+            "Subject: 無料キャンペーン\r\n"
+            "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
+            "当選 賞金を受け取る";
+        const std::string new_ham =
+            "Message-ID: <newham@example.test>\r\n"
+            "Subject: 会議資料\r\n"
+            "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
+            "議事録と予定を共有します";
+        ParsedMail pipeline_parsed;
+        Result spam_result, ham_result;
+        assert(pipeline.analyze(new_spam, pipeline_parsed, spam_result, &error));
+        assert(pipeline.analyze(new_ham, pipeline_parsed, ham_result, &error));
+        assert(spam_result.bayes_probability > ham_result.bayes_probability);
+        assert(pipeline.train(new_spam, true, nullptr, &error) == TrainStatus::Trained);
+        assert(pipeline.train(new_spam, true, nullptr, &error) == TrainStatus::Duplicate);
+    }
+    std::filesystem::remove(pipeline_path);
+    std::filesystem::remove(pipeline_path + "-wal");
+    std::filesystem::remove(pipeline_path + "-shm");
+
     std::cout << "All Becky AntiSpam engine and storage tests passed.\n";
+    return 0;
+}
+\n";
     return 0;
 }
