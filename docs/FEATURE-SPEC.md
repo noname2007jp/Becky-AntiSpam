@@ -30,9 +30,9 @@
 
 ### 2.3 メール解析・MIME
 - RFC 5322形式のヘッダーを解析し、折り返し行を展開する。
-- RFC 2047のB/Q encoded-wordを復号する（現段階では文字コード変換は未対応。元バイト列を保持）。
+- RFC 2047のB/Q encoded-wordを復号する（WindowsではUTF-8、Shift_JIS、EUC-JP、ISO-2022-JP等の一般的な文字コードをUTF-8へ変換。未知の文字コードは元バイト列を保持）。
 - `Authentication-Results` と `Return-Path` は未検証状態で判定スコアに利用しない。
-- MIME multipartを再帰解析し、text/plainを優先、なければtext/htmlからタグを除去して本文候補を抽出する。
+- MIME multipartを再帰解析し、text/plainを優先、なければtext/htmlからタグを除去して本文候補を抽出する。Windowsでは主要な日本語文字コードをUTF-8へ変換する。
 - Base64 / quoted-printableを本文テキストに限って復号する。添付ファイル本体は実行・展開・保存しない。
 - メールサイズ、ヘッダーサイズ・数、MIMEパート数・深さ、抽出本文サイズに上限を設ける。
 - SHA-256は受信した生メール全体のバイト列から計算する。正規化は行わず、同一内容の完全一致を重複判定対象とする。
