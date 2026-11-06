@@ -8,9 +8,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
 FetchContent_Declare(
     sqlite3
     URL https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip
+    URL_HASH SHA3_256=92281c86e2957f9b9305890f9ac04204caa7b677cc868dc326d942689df28e30
 )
 FetchContent_GetProperties(sqlite3)
 if(NOT sqlite3_POPULATED)
