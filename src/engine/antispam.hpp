@@ -16,6 +16,8 @@ struct Message {
     std::string spf_result;
     std::string dkim_result;
     std::string dmarc_result;
+    bool trusted_return_path = false;
+    bool trusted_authentication_results = false;
 };
 
 struct Settings {
