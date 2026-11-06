@@ -9,8 +9,6 @@
 #include "data_paths.hpp"
 
 namespace {
-using RegisterCommandFn = UINT (WINAPI*)(LPCSTR, int, void (CALLBACK*)(HWND, LPARAM));
-constexpr int kMenuMain = 0;
 constexpr int kLogId = 7101;
 constexpr int kTestId = 7102;
 constexpr int kSaveId = 7103;
