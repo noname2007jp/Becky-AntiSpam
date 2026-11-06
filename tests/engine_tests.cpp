@@ -69,18 +69,22 @@ int main() {
     assert(store.train_once(spam_hash, "free prize winner offer", true, &error) == TrainStatus::Trained);
     assert(store.train_once(spam_hash, "free prize winner offer", true, &error) == TrainStatus::Duplicate);
     assert(store.train_once(ham_hash, "meeting agenda project", false, &error) == TrainStatus::Trained);
+    const std::string corrected_hash(64, 'c');
+    assert(store.train_once(corrected_hash, "fraud offer", true, &error) == TrainStatus::Trained);
+    assert(store.train_once(corrected_hash, "fraud offer", false, &error) == TrainStatus::Reclassified);
+    assert(store.train_once(corrected_hash, "fraud offer", false, &error) == TrainStatus::Duplicate);
 
     BayesianModel restored;
     assert(store.load_model(restored, &error));
     assert(restored.spam_samples() == 1);
-    assert(restored.ham_samples() == 1);
+    assert(restored.ham_samples() == 2);
     assert(restored.spam_probability("free prize winner") >
            restored.spam_probability("meeting agenda"));
 
     StoreStats stats;
     assert(store.get_stats(stats, &error));
-    assert(stats.spam_samples == 1 && stats.ham_samples == 1);
-    assert(stats.training_receipts == 2);
+    assert(stats.spam_samples == 1 && stats.ham_samples == 2);
+    assert(stats.training_receipts == 3);
     assert(stats.vocabulary_size >= 5);
 
     std::string integrity;
@@ -94,6 +98,7 @@ int main() {
     assert(reopened.train_once(spam_hash, "free prize winner offer", true, &error) == TrainStatus::Duplicate);
     assert(reopened.load_model(restored, &error));
     assert(restored.spam_samples() == 1);
+    assert(restored.ham_samples() == 2);
     assert(reopened.compact(3, 1, 365, &error));
     assert(reopened.integrity_check(integrity, &error));
     reopened.close();
