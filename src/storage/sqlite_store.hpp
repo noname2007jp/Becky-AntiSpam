@@ -10,7 +10,7 @@ struct sqlite3;
 
 namespace beckyas {
 
-enum class TrainStatus { Trained, Duplicate, Error };
+enum class TrainStatus { Trained, Reclassified, Duplicate, Error };
 
 struct StoreStats {
     std::size_t spam_samples = 0;
