@@ -76,6 +76,6 @@ private:
     Settings settings_;
 };
 
-std::vector<std::string> tokenize(const std::string& text);
+std::string classifier_text(const Message& message);\nstd::vector<std::string> tokenize(const std::string& text);
 
 } // namespace beckyas
