@@ -61,9 +61,12 @@ std::string lower_ascii(std::string value) {
 } // namespace
 
 std::vector<std::string> SimpleJapaneseTokenizer::split(const std::string& text) const {
+    constexpr std::size_t max_input_bytes = 1024 * 1024;
+    constexpr std::size_t max_output_tokens = 20000;
+    const auto input_size = std::min(text.size(), max_input_bytes);
     std::vector<Rune> runes;
-    runes.reserve(text.size());
-    for (std::size_t pos = 0; pos < text.size();) {
+    runes.reserve(std::min(input_size, static_cast<std::size_t>(65536)));
+    for (std::size_t pos = 0; pos < input_size;) {
         Rune rune;
         const auto before = pos;
         if (!decode_one(text, pos, rune)) {
@@ -82,7 +85,7 @@ std::vector<std::string> SimpleJapaneseTokenizer::split(const std::string& text)
         if (seen.insert(token).second) result.push_back(std::move(token));
     };
 
-    for (std::size_t i = 0; i < runes.size();) {
+    for (std::size_t i = 0; i < runes.size() && result.size() < max_output_tokens;) {
         const auto cp = runes[i].value;
         if (is_ascii_word(cp)) {
             const auto first = i;
