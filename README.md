@@ -38,6 +38,7 @@ Becky!本体は32bitアプリケーションのみ提供されているため、
 
 - [統合機能仕様](docs/FEATURE-SPEC.md)
 - [開発ロードマップ](docs/ROADMAP.md)
+- [学習データストア設計](docs/DATA-STORE.md)
 - [SDK調査結果](docs/SDK-ANALYSIS.md)
 
 ## 機能計画
