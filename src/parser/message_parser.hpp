@@ -31,6 +31,7 @@ struct ParseLimits {
 struct ParsedMail {
     Message message;
     std::vector<HeaderField> headers;
+    std::vector<std::string> authentication_results;
     std::vector<AttachmentInfo> attachments;
     std::size_t source_bytes = 0;
     std::size_t mime_parts = 0;
