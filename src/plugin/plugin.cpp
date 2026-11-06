@@ -74,13 +74,13 @@ void test_log(const char* level, const std::string& message) noexcept {
 bool initialize_plugin() {
     std::wstring path_error;
     if (!beckyas::plugin::prepare_data_directory(g_data_dir, &path_error)) {
-        OutputDebugStringW((L"BeckyAntiSpam: " + path_error + L"\\n").c_str());
+        OutputDebugStringW((L"BeckyAntiSpam: " + path_error + L"\n").c_str());
         return false;
     }
     const std::wstring db_path = (g_data_dir / L"training.sqlite3").wstring();
     const int db_bytes = WideCharToMultiByte(CP_UTF8, 0, db_path.c_str(), -1, nullptr, 0, nullptr, nullptr);
     if (db_bytes <= 1) return false;
-    std::string db_utf8(static_cast<std::size_t>(db_bytes), '\\0');
+    std::string db_utf8(static_cast<std::size_t>(db_bytes), '\0');
     if (WideCharToMultiByte(CP_UTF8, 0, db_path.c_str(), -1, db_utf8.data(), db_bytes, nullptr, nullptr) <= 0) return false;
     db_utf8.pop_back();
     g_audit_log = g_data_dir / L"operation.log";
