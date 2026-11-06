@@ -39,6 +39,9 @@ public:
                            bool spam,
                            std::string* error = nullptr);
 
+    // Evaluation labels are independent from Bayes training.
+    bool set_evaluation_label(const std::string& message_hash, bool spam,
+                              std::string* error = nullptr);
     bool load_model(BayesianModel& model, std::string* error = nullptr) const;
     bool get_stats(StoreStats& stats, std::string* error = nullptr) const;
 
