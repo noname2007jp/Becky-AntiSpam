@@ -98,7 +98,7 @@ LRESULT CALLBACK dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
-void show_settings(HWND owner, LPARAM) {
+void CALLBACK show_settings(HWND owner, LPARAM) {
     if (g_window && IsWindow(g_window)) {
         ShowWindow(g_window, SW_SHOWNORMAL); SetForegroundWindow(g_window); return;
     }
