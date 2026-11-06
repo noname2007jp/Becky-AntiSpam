@@ -126,37 +126,9 @@ void CALLBACK show_settings(HWND owner, LPARAM) {
         500, 400, owner, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (g_window) { ShowWindow(g_window, SW_SHOWNORMAL); UpdateWindow(g_window); }
 }
-bool contains_plugin_settings(HMENU menu) {
-    const int count = GetMenuItemCount(menu);
-    for (int i = 0; i < count; ++i) {
-        wchar_t label[256]{};
-        GetMenuStringW(menu, i, label, 256, MF_BYPOSITION);
-        if (wcsstr(label, L"プラグインの設定")) return true;
-    }
-    return false;
-}
-HMENU find_plugin_settings_menu(HMENU menu) {
-    const int count = GetMenuItemCount(menu);
-    for (int i = 0; i < count; ++i) {
-        wchar_t label[256]{};
-        GetMenuStringW(menu, i, label, 256, MF_BYPOSITION);
-        HMENU sub = GetSubMenu(menu, i);
-        if (sub && wcsstr(label, L"プラグインの設定")) return sub;
-        if (sub) if (HMENU found = find_plugin_settings_menu(sub)) return found;
-    }
-    return nullptr;
-}
 } // namespace
 
-void initialize_settings_menu(HWND, HMENU menu, int type) {
-    if (type != kMenuMain || !menu || !paths()) return;
-    static UINT command_id = 0;
-    if (command_id) return;
-    HMODULE exe = GetModuleHandleW(nullptr);
-    auto reg = reinterpret_cast<RegisterCommandFn>(GetProcAddress(exe, "BKA_RegisterCommand"));
-    if (!reg) return;
-    command_id = reg("Open Becky AntiSpam settings", type, show_settings);
-    if (!command_id) return;
-    HMENU target = find_plugin_settings_menu(menu);
-    if (target) AppendMenuW(target, MF_STRING, command_id, L"Becky AntiSpam");
+int show_plugin_setup(HWND owner) {
+    show_settings(owner, 0);
+    return (g_window && IsWindow(g_window)) ? 1 : 0;
 }
