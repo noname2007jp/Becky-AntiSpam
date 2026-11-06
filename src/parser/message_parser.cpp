@@ -219,10 +219,12 @@ std::string header_value(const std::vector<HeaderField>& fields, const char* nam
     for (const auto& f : fields) if (f.name == name) return f.value;
     return {};
 }
-void append_bounded(std::string& out, const std::string& value, std::size_t limit, bool& truncated) {
-    if (out.size() >= limit) { truncated = true; return; }
-    const auto n = std::min(limit - out.size(), value.size());
+void append_bounded(std::string& out, const std::string& value, std::size_t limit,
+                    std::size_t& total, bool& truncated) {
+    if (total >= limit) { truncated = true; return; }
+    const auto n = std::min(limit - total, value.size());
     out.append(value.data(), n);
+    total += n;
     if (n < value.size()) truncated = true;
 }
 struct MimeContext {
@@ -230,6 +232,7 @@ struct MimeContext {
     ParsedMail& output;
     std::string plain;
     std::string html;
+    std::size_t decoded_text_bytes = 0;
 };
 void parse_entity(const std::string& entity, std::size_t depth, MimeContext& ctx) {
     if (depth > ctx.limits.max_mime_depth || ctx.output.mime_parts >= ctx.limits.max_mime_parts) {
@@ -263,13 +266,26 @@ void parse_entity(const std::string& entity, std::size_t depth, MimeContext& ctx
     const auto boundary = param(content_type, "boundary");
     if (media_type.rfind("multipart/", 0) == 0 && !boundary.empty()) {
         const std::string marker = "--" + boundary;
+        const auto find_boundary = [&body, &marker](std::size_t from) {
+            auto candidate = from;
+            while ((candidate = body.find(marker, candidate)) != std::string::npos) {
+                const bool line_start = candidate == 0 || body[candidate - 1] == '\n';
+                const auto after = candidate + marker.size();
+                const bool valid_suffix = body.compare(after, 2, "--") == 0 ||
+                    body.compare(after, 2, "\r\n") == 0 ||
+                    (after < body.size() && body[after] == '\n');
+                if (line_start && valid_suffix) return candidate;
+                ++candidate;
+            }
+            return std::string::npos;
+        };
         std::size_t pos = 0;
-        while ((pos = body.find(marker, pos)) != std::string::npos) {
+        while ((pos = find_boundary(pos)) != std::string::npos) {
             pos += marker.size();
             if (body.compare(pos, 2, "--") == 0) break;
             if (body.compare(pos, 2, "\r\n") == 0) pos += 2;
             else if (pos < body.size() && body[pos] == '\n') ++pos;
-            const auto next = body.find(marker, pos);
+            const auto next = find_boundary(pos);
             if (next == std::string::npos) break;
             auto part = body.substr(pos, next - pos);
             while (!part.empty() && (part.back() == '\r' || part.back() == '\n')) part.pop_back();
@@ -292,8 +308,8 @@ void parse_entity(const std::string& entity, std::size_t depth, MimeContext& ctx
     auto decoded = decode_transfer(body, transfer);
     const auto charset = param(content_type, "charset");
     if (!charset.empty()) decoded = charset_to_utf8(decoded, charset);
-    if (media_type == "text/html") append_bounded(ctx.html, strip_html(decoded), ctx.limits.max_decoded_text_bytes, ctx.output.body_truncated);
-    else if (media_type == "text/plain" || media_type.empty()) append_bounded(ctx.plain, decoded, ctx.limits.max_decoded_text_bytes, ctx.output.body_truncated);
+    if (media_type == "text/html") append_bounded(ctx.html, strip_html(decoded), ctx.limits.max_decoded_text_bytes, ctx.decoded_text_bytes, ctx.output.body_truncated);
+    else if (media_type == "text/plain" || media_type.empty()) append_bounded(ctx.plain, decoded, ctx.limits.max_decoded_text_bytes, ctx.decoded_text_bytes, ctx.output.body_truncated);
 }
 } // namespace
 
