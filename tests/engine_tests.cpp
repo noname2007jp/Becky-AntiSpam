@@ -45,9 +45,12 @@ int main() {
     assert(parsed.message.return_path.find("bounce@example.jp") != std::string::npos);
     assert(parsed.message.subject == "Hello World");
     assert(parsed.message.body.find("Hello mail!") != std::string::npos);
-    assert(parsed.message.spf_result == "pass");
-    assert(parsed.message.dkim_result == "pass");
-    assert(parsed.message.dmarc_result == "fail");
+    assert(parsed.authentication_results.size() == 1);
+    assert(parsed.authentication_results[0].find("spf=pass") != std::string::npos);
+    // Untrusted authentication headers must not influence classifier inputs.
+    assert(parsed.message.spf_result.empty());
+    assert(parsed.message.dkim_result.empty());
+    assert(parsed.message.dmarc_result.empty());
     assert(parsed.headers.size() >= 7);
     assert(parsed.headers[3].name == "x-long");
     assert(parsed.headers[3].value == "first second");
