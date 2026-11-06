@@ -166,26 +166,63 @@ TrainStatus SqliteStore::train_once(const std::string& message_hash,
     }
     if (!begin(db_, error)) return TrainStatus::Error;
 
-    Statement receipt(db_,
-        "INSERT INTO training_receipts(message_hash,label,trained_utc) VALUES(?1,?2,?3)");
-    if (!receipt.ok()) {
-        set_error(db_, error, "学習履歴SQLを準備できません");
-        rollback(db_);
-        return TrainStatus::Error;
-    }
     const auto hash = normalize_hash(message_hash);
-    sqlite3_bind_text(receipt.get(), 1, hash.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(receipt.get(), 2, spam ? 1 : 0);
-    sqlite3_bind_int64(receipt.get(), 3, now_utc());
-    const int receipt_rc = sqlite3_step(receipt.get());
-    if ((receipt_rc & 0xff) == SQLITE_CONSTRAINT) {
-        rollback(db_);
-        return TrainStatus::Duplicate;
+    bool reclassify = false;
+    bool old_spam = false;
+    {
+        Statement receipt(db_,
+            "INSERT INTO training_receipts(message_hash,label,trained_utc) VALUES(?1,?2,?3)");
+        if (!receipt.ok()) {
+            set_error(db_, error, "学習履歴SQLを準備できません");
+            rollback(db_);
+            return TrainStatus::Error;
+        }
+        sqlite3_bind_text(receipt.get(), 1, hash.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(receipt.get(), 2, spam ? 1 : 0);
+        sqlite3_bind_int64(receipt.get(), 3, now_utc());
+        const int receipt_rc = sqlite3_step(receipt.get());
+        if ((receipt_rc & 0xff) == SQLITE_CONSTRAINT) {
+            Statement existing(db_, "SELECT label FROM training_receipts WHERE message_hash=?1");
+            if (!existing.ok()) {
+                set_error(db_, error, "既存学習履歴SQLを準備できません");
+                rollback(db_);
+                return TrainStatus::Error;
+            }
+            sqlite3_bind_text(existing.get(), 1, hash.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(existing.get()) != SQLITE_ROW) {
+                set_error(db_, error, "既存学習履歴を確認できません");
+                rollback(db_);
+                return TrainStatus::Error;
+            }
+            old_spam = sqlite3_column_int(existing.get(), 0) == 1;
+            if (old_spam == spam) {
+                rollback(db_);
+                return TrainStatus::Duplicate;
+            }
+            reclassify = true;
+        } else if (receipt_rc != SQLITE_DONE) {
+            set_error(db_, error, "学習履歴を登録できません");
+            rollback(db_);
+            return TrainStatus::Error;
+        }
     }
-    if (receipt_rc != SQLITE_DONE) {
-        set_error(db_, error, "学習履歴を登録できません");
-        rollback(db_);
-        return TrainStatus::Error;
+
+    if (reclassify) {
+        Statement update(db_,
+            "UPDATE training_receipts SET label=?1,trained_utc=?2 WHERE message_hash=?3");
+        if (!update.ok()) {
+            set_error(db_, error, "学習ラベル更新SQLを準備できません");
+            rollback(db_);
+            return TrainStatus::Error;
+        }
+        sqlite3_bind_int(update.get(), 1, spam ? 1 : 0);
+        sqlite3_bind_int64(update.get(), 2, now_utc());
+        sqlite3_bind_text(update.get(), 3, hash.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(update.get()) != SQLITE_DONE) {
+            set_error(db_, error, "学習ラベルを更新できません");
+            rollback(db_);
+            return TrainStatus::Error;
+        }
     }
 
     const auto tokens = tokenize(text);
@@ -194,14 +231,18 @@ TrainStatus SqliteStore::train_once(const std::string& message_hash,
         "INSERT INTO token_stats(token,spam_docs,ham_docs,last_seen_utc) "
         "VALUES(?1,?2,?3,?4) "
         "ON CONFLICT(token) DO UPDATE SET "
-        "spam_docs=spam_docs+excluded.spam_docs,"
-        "ham_docs=ham_docs+excluded.ham_docs,"
+        "spam_docs=MAX(0,spam_docs+?5),"
+        "ham_docs=MAX(0,ham_docs+?6),"
         "last_seen_utc=excluded.last_seen_utc");
     if (!upsert.ok()) {
         set_error(db_, error, "単語統計SQLを準備できません");
         rollback(db_);
         return TrainStatus::Error;
     }
+    const int old_spam_delta = reclassify && old_spam ? 1 : 0;
+    const int old_ham_delta = reclassify && !old_spam ? 1 : 0;
+    const int spam_delta = (spam ? 1 : 0) - old_spam_delta;
+    const int ham_delta = (spam ? 0 : 1) - old_ham_delta;
     const auto timestamp = now_utc();
     for (const auto& token : unique) {
         sqlite3_reset(upsert.get());
@@ -210,6 +251,8 @@ TrainStatus SqliteStore::train_once(const std::string& message_hash,
         sqlite3_bind_int(upsert.get(), 2, spam ? 1 : 0);
         sqlite3_bind_int(upsert.get(), 3, spam ? 0 : 1);
         sqlite3_bind_int64(upsert.get(), 4, timestamp);
+        sqlite3_bind_int(upsert.get(), 5, spam_delta);
+        sqlite3_bind_int(upsert.get(), 6, ham_delta);
         if (sqlite3_step(upsert.get()) != SQLITE_DONE) {
             set_error(db_, error, "単語統計を更新できません");
             rollback(db_);
@@ -218,25 +261,33 @@ TrainStatus SqliteStore::train_once(const std::string& message_hash,
     }
 
     Statement samples(db_,
-        "INSERT INTO meta(key,value) VALUES(?1,1) "
-        "ON CONFLICT(key) DO UPDATE SET value=value+1");
+        "INSERT INTO meta(key,value) VALUES(?1,?2) "
+        "ON CONFLICT(key) DO UPDATE SET value=MAX(0,value+excluded.value)");
     if (!samples.ok()) {
         set_error(db_, error, "学習件数SQLを準備できません");
         rollback(db_);
         return TrainStatus::Error;
     }
-    const char* key = spam ? "spam_samples" : "ham_samples";
-    sqlite3_bind_text(samples.get(), 1, key, -1, SQLITE_STATIC);
-    if (sqlite3_step(samples.get()) != SQLITE_DONE) {
-        set_error(db_, error, "学習件数を更新できません");
-        rollback(db_);
-        return TrainStatus::Error;
+    const int sample_deltas[2] = {spam_delta, ham_delta};
+    const char* sample_keys[2] = {"spam_samples", "ham_samples"};
+    for (int i = 0; i < 2; ++i) {
+        if (sample_deltas[i] == 0) continue;
+        sqlite3_reset(samples.get());
+        sqlite3_clear_bindings(samples.get());
+        sqlite3_bind_text(samples.get(), 1, sample_keys[i], -1, SQLITE_STATIC);
+        sqlite3_bind_int(samples.get(), 2, sample_deltas[i]);
+        if (sqlite3_step(samples.get()) != SQLITE_DONE) {
+            set_error(db_, error, "学習件数を更新できません");
+            rollback(db_);
+            return TrainStatus::Error;
+        }
     }
+
     if (!exec(db_, "COMMIT", error)) {
         rollback(db_);
         return TrainStatus::Error;
     }
-    return TrainStatus::Trained;
+    return reclassify ? TrainStatus::Reclassified : TrainStatus::Trained;
 }
 
 bool SqliteStore::load_model(BayesianModel& model, std::string* error) const {
