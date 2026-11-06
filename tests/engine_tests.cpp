@@ -69,10 +69,10 @@ int main() {
 #ifdef _WIN32
     // Shift_JIS header and body are converted to UTF-8 on the target Windows platform.
     std::string sjis_mail =
-        "Subject: =?Shift_JIS?B?k/qWe4zq?=\\r\\n"
-        "Content-Type: text/plain; charset=Shift_JIS\\r\\n"
-        "\\r\\n";
-    sjis_mail.append("\\x93\\xfa\\x96\\x7b\\x8c\\xea", 6);
+        "Subject: =?Shift_JIS?B?k/qWe4zq?=\r\n"
+        "Content-Type: text/plain; charset=Shift_JIS\r\n"
+        "\r\n";
+    sjis_mail.append("\x93\xfa\x96\x7b\x8c\xea", 6);
     ParsedMail sjis_parsed;
     assert(parser.parse(sjis_mail, sjis_parsed, &error));
     assert(sjis_parsed.message.subject == "日本語");
