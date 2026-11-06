@@ -14,7 +14,6 @@ constexpr int ID_CANCEL = 1005;
 
 HWND g_logging = nullptr;
 HWND g_test_mode = nullptr;
-HWND g_status = nullptr;
 std::wstring g_data_dir;
 std::wstring g_ini_path;
 
@@ -119,7 +118,6 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
             return 0;
         case ID_SAVE:
             if (save_settings()) {
-                SetWindowTextW(g_status, L"");
                 MessageBoxW(hwnd,
                     L"設定を保存しました。\nBecky! を再起動すると設定が反映されます。",
                     L"Becky AntiSpam", MB_OK | MB_ICONINFORMATION);
