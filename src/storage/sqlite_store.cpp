@@ -72,8 +72,9 @@ void rollback(sqlite3* db) { sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, null
 
 } // namespace
 
-SqliteStore::SqliteStore(std::string database_path)
-    : database_path_(std::move(database_path)) {}
+SqliteStore::SqliteStore(std::string database_path, std::size_t max_vocabulary)
+    : database_path_(std::move(database_path)),
+      max_vocabulary_(std::max<std::size_t>(1, max_vocabulary)) {}
 
 SqliteStore::~SqliteStore() { close(); }
 
@@ -162,6 +163,10 @@ TrainStatus SqliteStore::train_once(const std::string& message_hash,
     }
     if (!valid_hash(message_hash)) {
         if (error) *error = "message_hashにはSHA-256の64桁16進数を指定してください";
+        return TrainStatus::Error;
+    }
+    if (text.size() > 1024 * 1024) {
+        if (error) *error = "学習対象テキストが1MiBを超えています";
         return TrainStatus::Error;
     }
     if (!begin(db_, error)) return TrainStatus::Error;
@@ -280,6 +285,52 @@ TrainStatus SqliteStore::train_once(const std::string& message_hash,
             set_error(db_, error, "学習件数を更新できません");
             rollback(db_);
             return TrainStatus::Error;
+        }
+    }
+
+    {
+        Statement count(db_, "SELECT count(*) FROM token_stats");
+        if (!count.ok() || sqlite3_step(count.get()) != SQLITE_ROW) {
+            set_error(db_, error, "語彙数を確認できません");
+            rollback(db_);
+            return TrainStatus::Error;
+        }
+        const auto current = static_cast<std::size_t>(sqlite3_column_int64(count.get(), 0));
+        const auto extra = std::max<std::size_t>(100, max_vocabulary_ / 20);
+        const auto trigger = max_vocabulary_ > std::numeric_limits<std::size_t>::max() - extra
+            ? std::numeric_limits<std::size_t>::max() : max_vocabulary_ + extra;
+        if (current > trigger) {
+            // Finalize the count query before pruning the same table.
+        }
+    }
+    {
+        Statement count(db_, "SELECT count(*) FROM token_stats");
+        if (!count.ok() || sqlite3_step(count.get()) != SQLITE_ROW) {
+            set_error(db_, error, "語彙数を確認できません");
+            rollback(db_);
+            return TrainStatus::Error;
+        }
+        const auto current = static_cast<std::size_t>(sqlite3_column_int64(count.get(), 0));
+        const auto extra = std::max<std::size_t>(100, max_vocabulary_ / 20);
+        const auto trigger = max_vocabulary_ > std::numeric_limits<std::size_t>::max() - extra
+            ? std::numeric_limits<std::size_t>::max() : max_vocabulary_ + extra;
+        if (current > trigger) {
+            Statement prune(db_,
+                "DELETE FROM token_stats WHERE token NOT IN ("
+                " SELECT token FROM token_stats ORDER BY (spam_docs+ham_docs) DESC, token ASC LIMIT ?1)");
+            if (!prune.ok()) {
+                set_error(db_, error, "語彙上限SQLを準備できません");
+                rollback(db_);
+                return TrainStatus::Error;
+            }
+            sqlite3_bind_int64(prune.get(), 1, static_cast<sqlite3_int64>(
+                std::min<std::size_t>(max_vocabulary_,
+                    static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()))));
+            if (sqlite3_step(prune.get()) != SQLITE_DONE) {
+                set_error(db_, error, "語彙上限を適用できません");
+                rollback(db_);
+                return TrainStatus::Error;
+            }
         }
     }
 
