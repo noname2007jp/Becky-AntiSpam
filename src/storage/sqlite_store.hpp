@@ -50,6 +50,7 @@ public:
 
     bool integrity_check(std::string& result, std::string* error = nullptr) const;
     bool backup_to(const std::string& destination_path, std::string* error = nullptr) const;
+    bool restore_from(const std::string& source_path, std::string* error = nullptr);
 
 private:
     std::string database_path_;
