@@ -23,6 +23,7 @@ Becky!本体は32bitアプリケーションのみ提供されているため、
 - [x] SDK API / コールバックの一次調査
 - [x] Becky! 2.83.11 / Win32(x86) を対象に確定
 - [x] 監査専用Becky!プラグインDLL（Win32/x86）の実装・CIビルド
+- [x] 運用ログ／テスト詳細ログの個別ON/OFF設定（初期値：運用ログON、テスト詳細OFF）
 - [ ] Becky! 2.83.11でのDLLロード・受信コールバック実機確認
 - [x] MIME/ヘッダー解析（multipart、Base64、quoted-printable、Windows日本語文字コード変換）
 - [x] SHA-256ハッシュ生成（生メールの完全一致識別用）
@@ -78,5 +79,19 @@ ctest --test-dir build -C Release --output-on-failure
 ```
 
 DLLは `build/Release/BeckyAntiSpam.dll` に生成されます。GitHub Actionsの [Windows x86 build](https://github.com/noname2007jp/Becky-AntiSpam/actions) からも `BeckyAntiSpam-Win32` アーティファクトを取得できます。
+
+ログ設定は `%APPDATA%\\BeckyAntiSpam\\settings.ini` で変更できます。
+
+```ini
+[logging]
+enabled=1
+[test_mode]
+enabled=0
+```
+
+- `logging.enabled=1`: 通常ログを `operation.log` に記録（初期値ON、約5MiBでローテーション）
+- `logging.enabled=0`: ファイルログをすべて停止
+- `test_mode.enabled=1`: 詳細ログを `test-detail.log` に追加記録（初期値OFF、約20MiBでローテーション）
+- テストモードでは解析サイズ・MIME構成・判定値・ルール名／理由・解析警告・内部エラーを記録します。メール本文、件名、送信者、ヘッダー値そのものは記録しません。
 
 現段階のDLLは監査専用です。Becky!の `PlugIns` フォルダーへ配置してロード確認する前に、既存設定・メールデータのバックアップを推奨します。メールの移動・削除は行いません。監査ログと学習DBは `%APPDATA%\\BeckyAntiSpam\\` に作成されます。
