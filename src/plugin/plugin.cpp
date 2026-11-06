@@ -4,6 +4,7 @@
 
 #include "mail_pipeline.hpp"
 #include "sqlite_store.hpp"
+#include "tokenizer.hpp"
 
 #include <cstdio>
 #include <cstdint>
@@ -14,9 +15,9 @@
 #include <string>
 
 namespace {
-
 constexpr std::size_t kMaxMessageBytes = 5u * 1024u * 1024u;
-constexpr std::uint64_t kMaxAuditLogBytes = 1024u * 1024u;
+constexpr std::uint64_t kDefaultLogLimit = 5u * 1024u * 1024u;
+constexpr std::uint64_t kTestLogLimit = 20u * 1024u * 1024u;
 
 struct PluginInfo {
     char name[80];
@@ -24,12 +25,48 @@ struct PluginInfo {
     char version[80];
     char description[256];
 };
-
+struct LogSettings {
+    bool enabled = true;
+    bool test_mode = false;
+};
 std::mutex g_mutex;
 std::unique_ptr<beckyas::SqliteStore> g_store;
 std::unique_ptr<beckyas::MailPipeline> g_pipeline;
-std::filesystem::path g_data_dir;
-std::filesystem::path g_audit_log;
+std::filesystem::path g_data_dir, g_audit_log, g_debug_log;
+LogSettings g_log_settings;
+
+void log_line(const std::filesystem::path& path, const char* level,
+              const std::string& message, std::uint64_t limit) noexcept {
+    try {
+        std::error_code ec;
+        if (std::filesystem::exists(path, ec) && !ec &&
+            std::filesystem::file_size(path, ec) >= limit && !ec) {
+            auto old = path; old += L".1";
+            std::filesystem::remove(old, ec); ec.clear();
+            std::filesystem::rename(path, old, ec);
+        }
+        SYSTEMTIME now{}; GetLocalTime(&now);
+        FILE* file = nullptr;
+        if (_wfopen_s(&file, path.c_str(), L"ab") != 0 || !file) return;
+        std::fprintf(file, "%04u-%02u-%02u %02u:%02u:%02u [%s] ",
+            now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, level);
+        // Prevent log injection; never write message source, headers or body here.
+        for (char c : message) {
+            if (c == '\r' || c == '\n') std::fputc(' ', file);
+            else std::fputc(c, file);
+        }
+        std::fputs("\r\n", file);
+        std::fclose(file);
+    } catch (...) {}
+}
+void operational_log(const char* level, const std::string& message) noexcept {
+    if (g_log_settings.enabled)
+        log_line(g_audit_log, level, message, kDefaultLogLimit);
+}
+void test_log(const char* level, const std::string& message) noexcept {
+    if (g_log_settings.enabled && g_log_settings.test_mode)
+        log_line(g_debug_log, level, message, kTestLogLimit);
+}
 
 bool initialize_plugin() {
     wchar_t appdata[MAX_PATH] = {};
@@ -38,64 +75,34 @@ bool initialize_plugin() {
         OutputDebugStringA("BeckyAntiSpam: cannot resolve APPDATA path.\n");
         return false;
     }
-
-    const int utf8_size = WideCharToMultiByte(CP_UTF8, 0, appdata, -1, nullptr, 0, nullptr, nullptr);
-    if (utf8_size <= 1) return false;
-    std::string appdata_utf8(static_cast<std::size_t>(utf8_size), '\0');
-    if (WideCharToMultiByte(CP_UTF8, 0, appdata, -1, appdata_utf8.data(),
-                            utf8_size, nullptr, nullptr) <= 0) return false;
-    appdata_utf8.pop_back();
-
-    const std::string data_dir_utf8 = appdata_utf8 + "\\BeckyAntiSpam";
-    g_data_dir = std::filesystem::u8path(data_dir_utf8);
+    const int n = WideCharToMultiByte(CP_UTF8, 0, appdata, -1, nullptr, 0, nullptr, nullptr);
+    if (n <= 1) return false;
+    std::string base(static_cast<std::size_t>(n), '\0');
+    if (WideCharToMultiByte(CP_UTF8, 0, appdata, -1, base.data(), n, nullptr, nullptr) <= 0) return false;
+    base.pop_back();
+    const std::string dir = base + "\\BeckyAntiSpam";
+    g_data_dir = std::filesystem::u8path(dir);
     std::filesystem::create_directories(g_data_dir);
-    g_audit_log = g_data_dir / L"audit.log";
+    g_audit_log = g_data_dir / L"operation.log";
+    g_debug_log = g_data_dir / L"test-detail.log";
 
-    const auto db_path = data_dir_utf8 + "\\training.sqlite3";
-    g_store = std::make_unique<beckyas::SqliteStore>(db_path);
+    const auto ini = g_data_dir / L"settings.ini";
+    g_log_settings.enabled = GetPrivateProfileIntW(L"logging", L"enabled", 1, ini.c_str()) != 0;
+    g_log_settings.test_mode = GetPrivateProfileIntW(L"test_mode", L"enabled", 0, ini.c_str()) != 0;
+    operational_log("INFO", std::string("startup logging=") +
+        (g_log_settings.enabled ? "on" : "off") + " test_mode=" +
+        (g_log_settings.test_mode ? "on" : "off"));
+
+    g_store = std::make_unique<beckyas::SqliteStore>(dir + "\\training.sqlite3");
     g_pipeline = std::make_unique<beckyas::MailPipeline>(*g_store);
     std::string error;
     if (!g_pipeline->initialize(&error)) {
-        OutputDebugStringA(("BeckyAntiSpam: initialization failed: " + error + "\n").c_str());
-        g_pipeline.reset();
-        g_store.reset();
-        return false;
+        operational_log("ERROR", "initialization failed: " + error);
+        g_pipeline.reset(); g_store.reset(); return false;
     }
+    operational_log("INFO", "pipeline initialized");
     return true;
 }
-
-void write_audit(const beckyas::Result& result) {
-    try {
-        std::error_code ec;
-        if (std::filesystem::exists(g_audit_log, ec) && !ec &&
-            std::filesystem::file_size(g_audit_log, ec) > kMaxAuditLogBytes && !ec) {
-            auto previous = g_audit_log;
-            previous += L".1";
-            std::filesystem::remove(previous, ec);
-            ec.clear();
-            std::filesystem::rename(g_audit_log, previous, ec);
-        }
-
-        SYSTEMTIME now{};
-        GetLocalTime(&now);
-        const char* verdict = "ham";
-        if (result.verdict == beckyas::Verdict::Review) verdict = "review";
-        else if (result.verdict == beckyas::Verdict::Spam) verdict = "spam";
-
-        char line[256] = {};
-        std::snprintf(line, sizeof(line), "%04u-%02u-%02u %02u:%02u:%02u verdict=%s score=%d bayes=%.4f\r\n",
-            now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond,
-            verdict, result.score, result.bayes_probability);
-        FILE* file = nullptr;
-        if (_wfopen_s(&file, g_audit_log.c_str(), L"ab") == 0 && file) {
-            std::fwrite(line, 1, std::strlen(line), file);
-            std::fclose(file);
-        }
-    } catch (...) {
-        // Audit logging must never interfere with mail reception.
-    }
-}
-
 } // namespace
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
@@ -104,31 +111,22 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
 }
 
 extern "C" {
-
 int WINAPI BKC_OnStart() {
     try {
         std::lock_guard<std::mutex> lock(g_mutex);
         if (!g_pipeline) initialize_plugin();
-    } catch (...) {
-        OutputDebugStringA("BeckyAntiSpam: startup exception.\n");
-    }
+    } catch (...) { OutputDebugStringA("BeckyAntiSpam: startup exception.\n"); }
     return 0;
 }
-
 int WINAPI BKC_OnExit() {
     try {
         std::lock_guard<std::mutex> lock(g_mutex);
-        g_pipeline.reset();
-        g_store.reset();
-    } catch (...) {
-    }
+        operational_log("INFO", "shutdown");
+        g_pipeline.reset(); g_store.reset();
+    } catch (...) {}
     return 0;
 }
-
-int WINAPI BKC_OnMenuInit(HWND, HMENU, int) {
-    return 0;
-}
-
+int WINAPI BKC_OnMenuInit(HWND, HMENU, int) { return 0; }
 int WINAPI BKC_OnPlugInInfo(PluginInfo* info) {
     if (!info) return 0;
     std::strncpy(info->name, "Becky AntiSpam", sizeof(info->name) - 1);
@@ -137,32 +135,59 @@ int WINAPI BKC_OnPlugInInfo(PluginInfo* info) {
     std::strncpy(info->description, "Local spam classification (audit mode)", sizeof(info->description) - 1);
     return 0;
 }
-
 int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** parameter) {
-    if (action) *action = -1;       // ACTION_NOTHING
+    if (action) *action = -1;
     if (parameter) *parameter = nullptr;
-    if (!message) return 0;         // BKC_FILTER_DEFAULT
-
+    if (!message) return 0;
     try {
         const auto length = strnlen_s(message, kMaxMessageBytes + 1);
-        if (length == 0 || length > kMaxMessageBytes) return 0;
-
+        if (length == 0 || length > kMaxMessageBytes) {
+            operational_log("WARN", "message skipped: empty or size limit exceeded");
+            test_log("WARN", "filter input rejected by size guard");
+            return 0;
+        }
         std::lock_guard<std::mutex> lock(g_mutex);
-        if (!g_pipeline && !initialize_plugin()) return 0;
-
+        if (!g_pipeline && !initialize_plugin()) {
+            operational_log("ERROR", "pipeline unavailable; message passed to standard filter");
+            return 0;
+        }
+        test_log("TRACE", "filter callback entered; bytes=" + std::to_string(length));
         beckyas::ParsedMail parsed;
         beckyas::Result result;
         std::string error;
-        if (g_pipeline->analyze(std::string(message, length), parsed, result, &error))
-            write_audit(result);
-        else
-            OutputDebugStringA(("BeckyAntiSpam: message analysis skipped: " + error + "\n").c_str());
+        if (!g_pipeline->analyze(std::string(message, length), parsed, result, &error)) {
+            operational_log("ERROR", "analysis failed: " + error);
+            test_log("ERROR", "parser/pipeline error: " + error);
+            return 0;
+        }
+        const char* verdict = result.verdict == beckyas::Verdict::Spam ? "spam" :
+            result.verdict == beckyas::Verdict::Review ? "review" : "ham";
+        operational_log("INFO", std::string("classification verdict=") + verdict +
+            " score=" + std::to_string(result.score));
+        if (g_log_settings.test_mode) {
+            test_log("TRACE", "parsed bytes=" + std::to_string(parsed.source_bytes) +
+                " mime_parts=" + std::to_string(parsed.mime_parts) +
+                " headers=" + std::to_string(parsed.headers.size()) +
+                " attachments=" + std::to_string(parsed.attachments.size()) +
+                " body_truncated=" + (parsed.body_truncated ? "true" : "false"));
+            test_log("TRACE", std::string("result verdict=") + verdict +
+                " score=" + std::to_string(result.score) +
+                " bayes_probability=" + std::to_string(result.bayes_probability) +
+                " findings=" + std::to_string(result.findings.size()) +
+                " spam_samples=" + std::to_string(g_pipeline->model().spam_samples()) +
+                " ham_samples=" + std::to_string(g_pipeline->model().ham_samples()) +
+                " vocabulary=" + std::to_string(g_pipeline->model().vocabulary_size()));
+            for (const auto& finding : result.findings)
+                test_log("RULE", "rule=" + finding.rule + " score=" +
+                    std::to_string(finding.score) + " reason=" + finding.reason);
+            for (const auto& warning : parsed.warnings)
+                test_log("WARN", "parser warning: " + warning);
+        }
     } catch (...) {
-        OutputDebugStringA("BeckyAntiSpam: filter callback exception.\n");
+        operational_log("ERROR", "unexpected exception in filter callback");
+        test_log("ERROR", "unexpected exception in filter callback");
     }
-
-    // Audit-only: leave Becky!'s standard filtering untouched.
-    return 0; // BKC_FILTER_DEFAULT
+    // Audit only. No mail move or delete; continue normal Becky! filtering.
+    return 0;
 }
-
-} // extern "C"
+}
