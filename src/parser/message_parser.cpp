@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <string_view>
 #include <utility>
 
@@ -99,11 +100,11 @@ std::string charset_to_utf8(const std::string& bytes, const std::string& charset
     const int input_length = static_cast<int>(bytes.size());
     const int wide_length = MultiByteToWideChar(codepage, 0, bytes.data(), input_length, nullptr, 0);
     if (wide_length <= 0) return bytes;
-    std::wstring wide(static_cast<std::size_t>(wide_length), L'\\0');
+    std::wstring wide(static_cast<std::size_t>(wide_length), L'\0');
     if (MultiByteToWideChar(codepage, 0, bytes.data(), input_length, wide.data(), wide_length) <= 0) return bytes;
     const int utf8_length = WideCharToMultiByte(CP_UTF8, 0, wide.data(), wide_length, nullptr, 0, nullptr, nullptr);
     if (utf8_length <= 0) return bytes;
-    std::string utf8(static_cast<std::size_t>(utf8_length), '\\0');
+    std::string utf8(static_cast<std::size_t>(utf8_length), '\0');
     if (WideCharToMultiByte(CP_UTF8, 0, wide.data(), wide_length, utf8.data(), utf8_length, nullptr, nullptr) <= 0) return bytes;
     return utf8;
 #else
