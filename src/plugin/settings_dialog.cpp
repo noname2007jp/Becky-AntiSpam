@@ -13,10 +13,14 @@ constexpr int kSaveId = 7103;
 constexpr int kCloseId = 7104;
 constexpr int kFolderId = 7105;
 constexpr int kMigrationId = 7108;
+constexpr int kHamKeyId = 7109;
+constexpr int kSpamKeyId = 7110;
 
 HWND g_window = nullptr;
 HWND g_log = nullptr;
 HWND g_test = nullptr;
+HWND g_ham_key = nullptr;
+HWND g_spam_key = nullptr;
 std::wstring g_dir;
 std::wstring g_ini;
 
@@ -51,12 +55,31 @@ void load() {
     SendMessageW(g_test, BM_SETCHECK,
         GetPrivateProfileIntW(L"test_mode", L"enabled", 0, g_ini.c_str()) ? BST_CHECKED : BST_UNCHECKED, 0);
     toggle_test();
+    wchar_t ham[8] = L"H", spam[8] = L"S";
+    GetPrivateProfileStringW(L"review", L"ham_key", L"H", ham, 8, g_ini.c_str());
+    GetPrivateProfileStringW(L"review", L"spam_key", L"S", spam, 8, g_ini.c_str());
+    SetWindowTextW(g_ham_key, ham);
+    SetWindowTextW(g_spam_key, spam);
 }
 bool save() {
     const wchar_t* a = SendMessageW(g_log, BM_GETCHECK, 0, 0) == BST_CHECKED ? L"1" : L"0";
     const wchar_t* b = SendMessageW(g_test, BM_GETCHECK, 0, 0) == BST_CHECKED ? L"1" : L"0";
+    wchar_t ham[8]{}, spam[8]{};
+    GetWindowTextW(g_ham_key, ham, 8);
+    GetWindowTextW(g_spam_key, spam, 8);
+    if (wcslen(ham) != 1 || wcslen(spam) != 1 ||
+        towupper(ham[0]) < L'A' || towupper(ham[0]) > L'Z' ||
+        towupper(spam[0]) < L'A' || towupper(spam[0]) > L'Z' ||
+        towupper(ham[0]) == towupper(spam[0])) {
+        MessageBoxW(g_window, L"正常・迷惑のキーは、重複しないアルファベット1文字（A～Z）を指定してください。",
+                    L"入力内容の確認", MB_OK | MB_ICONWARNING);
+        return false;
+    }
+    ham[0] = towupper(ham[0]); spam[0] = towupper(spam[0]);
     return WritePrivateProfileStringW(L"logging", L"enabled", a, g_ini.c_str()) &&
-           WritePrivateProfileStringW(L"test_mode", L"enabled", b, g_ini.c_str());
+           WritePrivateProfileStringW(L"test_mode", L"enabled", b, g_ini.c_str()) &&
+           WritePrivateProfileStringW(L"review", L"ham_key", ham, g_ini.c_str()) &&
+           WritePrivateProfileStringW(L"review", L"spam_key", spam, g_ini.c_str());
 }
 void show_migration(HWND hwnd) {
     std::wstring message =
@@ -88,17 +111,23 @@ LRESULT CALLBACK dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             BS_AUTOCHECKBOX | WS_TABSTOP, 32, 101, 420, 24, kTestId);
         control(hwnd, L"STATIC", L"詳細ログには解析結果・判定ルール・警告が記録されます。通常運用ではOFFを推奨します。",
             0, 32, 132, 420, 30);
-        control(hwnd, L"BUTTON", L"データ保存先", BS_GROUPBOX, 16, 180, 452, 102);
+        control(hwnd, L"BUTTON", L"判定キー", BS_GROUPBOX, 16, 180, 452, 94);
+        control(hwnd, L"STATIC", L"正常として確定：", 0, 30, 204, 125, 22);
+        g_ham_key = control(hwnd, L"EDIT", L"H", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 160, 201, 42, 24, kHamKeyId);
+        control(hwnd, L"STATIC", L"迷惑として確定：", 0, 230, 204, 125, 22);
+        g_spam_key = control(hwnd, L"EDIT", L"S", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 360, 201, 42, 24, kSpamKeyId);
+        control(hwnd, L"STATIC", L"アルファベット1文字。正常・迷惑で異なるキーを指定します。", 0, 30, 239, 420, 20);
+        control(hwnd, L"BUTTON", L"データ保存先", BS_GROUPBOX, 16, 286, 452, 102);
         control(hwnd, L"STATIC", g_dir.c_str(), SS_LEFT | SS_PATHELLIPSIS,
-            30, 202, 420, 20);
+            30, 308, 420, 20);
         control(hwnd, L"BUTTON", L"フォルダーを開く", BS_PUSHBUTTON | WS_TABSTOP,
-            30, 232, 140, 26, kFolderId);
+            30, 338, 140, 26, kFolderId);
         control(hwnd, L"BUTTON", L"移行方法", BS_PUSHBUTTON | WS_TABSTOP,
-            182, 232, 120, 26, kMigrationId);
+            182, 338, 120, 26, kMigrationId);
         control(hwnd, L"STATIC", L"※ メールの移動・削除は行いません。",
-            0, 18, 305, 450, 24);
-        control(hwnd, L"BUTTON", L"保存", BS_DEFPUSHBUTTON | WS_TABSTOP, 300, 365, 78, 28, kSaveId);
-        control(hwnd, L"BUTTON", L"閉じる", BS_PUSHBUTTON | WS_TABSTOP, 388, 365, 78, 28, kCloseId);
+            0, 18, 405, 450, 24);
+        control(hwnd, L"BUTTON", L"保存", BS_DEFPUSHBUTTON | WS_TABSTOP, 300, 445, 78, 28, kSaveId);
+        control(hwnd, L"BUTTON", L"閉じる", BS_PUSHBUTTON | WS_TABSTOP, 388, 445, 78, 28, kCloseId);
         load();
         return 0;
     case WM_COMMAND:
@@ -118,7 +147,7 @@ LRESULT CALLBACK dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         break;
     case WM_CLOSE: DestroyWindow(hwnd); return 0;
     case WM_DESTROY:
-        g_window = nullptr; g_log = nullptr; g_test = nullptr; return 0;
+        g_window = nullptr; g_log = nullptr; g_test = nullptr; g_ham_key = nullptr; g_spam_key = nullptr; return 0;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
@@ -141,7 +170,7 @@ void CALLBACK show_settings(HWND owner, LPARAM) {
     }
     g_window = CreateWindowExW(WS_EX_DLGMODALFRAME, cls, L"Becky AntiSpam - 設定",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT,
-        500, 435, owner, nullptr, GetModuleHandleW(nullptr), nullptr);
+        500, 510, owner, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (g_window) { ShowWindow(g_window, SW_SHOWNORMAL); UpdateWindow(g_window); }
 }
 } // namespace
