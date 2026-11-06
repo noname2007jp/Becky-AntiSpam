@@ -129,13 +129,13 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
     Result r;
     const auto text = combined_text(m);
 
-    if (settings_.enable_authentication_rules) {
+    if (settings_.enable_authentication_rules && m.trusted_authentication_results) {
         if (contains(m.spf_result, "fail")) add(r, "auth.spf_fail", 25, "SPF認証がfail");
         if (contains(m.dkim_result, "fail")) add(r, "auth.dkim_fail", 20, "DKIM署名検証がfail");
         if (contains(m.dmarc_result, "fail")) add(r, "auth.dmarc_fail", 25, "DMARC認証がfail");
     }
 
-    if (!m.from.empty() && !m.return_path.empty()) {
+    if (m.trusted_return_path && !m.from.empty() && !m.return_path.empty()) {
         const auto from = lower(m.from);
         const auto path = lower(m.return_path);
         const auto at1 = from.rfind('@');
