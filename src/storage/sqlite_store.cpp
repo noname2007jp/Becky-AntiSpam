@@ -174,7 +174,7 @@ TrainStatus SqliteStore::train_once(const std::string& message_hash,
     sqlite3_bind_int(receipt.get(), 2, spam ? 1 : 0);
     sqlite3_bind_int64(receipt.get(), 3, now_utc());
     const int receipt_rc = sqlite3_step(receipt.get());
-    if (receipt_rc == SQLITE_CONSTRAINT_PRIMARYKEY || receipt_rc == SQLITE_CONSTRAINT_UNIQUE) {
+    if ((receipt_rc & 0xff) == SQLITE_CONSTRAINT) {
         rollback(db_);
         return TrainStatus::Duplicate;
     }
@@ -297,15 +297,22 @@ bool SqliteStore::get_stats(StoreStats& stats, std::string* error) const {
     if (rc != SQLITE_DONE) { set_error(db_, error, "学習件数を取得できません"); return false; }
 
     Statement counts(db_, "SELECT (SELECT count(*) FROM token_stats),"
-                          "(SELECT count(*) FROM training_receipts),"
-                          "(SELECT page_count*page_size FROM pragma_page_count(),pragma_page_size())");
+                          "(SELECT count(*) FROM training_receipts)");
     if (!counts.ok() || sqlite3_step(counts.get()) != SQLITE_ROW) {
         set_error(db_, error, "DB統計を取得できません");
         return false;
     }
     stats.vocabulary_size = static_cast<std::size_t>(sqlite3_column_int64(counts.get(), 0));
     stats.training_receipts = static_cast<std::size_t>(sqlite3_column_int64(counts.get(), 1));
-    stats.database_bytes = static_cast<std::uint64_t>(sqlite3_column_int64(counts.get(), 2));
+    Statement pages(db_, "PRAGMA page_count");
+    Statement page_size(db_, "PRAGMA page_size");
+    if (!pages.ok() || !page_size.ok() ||
+        sqlite3_step(pages.get()) != SQLITE_ROW || sqlite3_step(page_size.get()) != SQLITE_ROW) {
+        set_error(db_, error, "DBサイズを取得できません");
+        return false;
+    }
+    stats.database_bytes = static_cast<std::uint64_t>(sqlite3_column_int64(pages.get(), 0)) *
+                           static_cast<std::uint64_t>(sqlite3_column_int64(page_size.get(), 0));
     return true;
 }
 
@@ -331,7 +338,7 @@ bool SqliteStore::compact(std::size_t max_vocabulary,
     if (!excess.ok()) { set_error(db_, error, "語彙上限SQLを準備できません"); rollback(db_); return false; }
     const auto capped = std::min<std::size_t>(max_vocabulary,
         static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()));
-    sqlite3_bind_int64(excess.get(), 1, static_cast<sqlite3_int64>(capped));
+    sqlite3_bind_int64(excess.get(), 1, static_cast<sqlite3_int64>(std::max<std::size_t>(1, capped)));
     if (sqlite3_step(excess.get()) != SQLITE_DONE) { set_error(db_, error, "語彙を整理できません"); rollback(db_); return false; }
 
     if (receipt_retention_days > 0) {
