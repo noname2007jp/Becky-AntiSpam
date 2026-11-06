@@ -27,8 +27,10 @@ target_compile_definitions(sqlite3 PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_
 
 add_library(antispam_engine
     src/engine/antispam.cpp
+    src/parser/message_parser.cpp
+    src/crypto/sha256.cpp
 )
-target_include_directories(antispam_engine PUBLIC src/engine)
+target_include_directories(antispam_engine PUBLIC src/engine src/parser src/crypto)
 if(MSVC)
     target_compile_options(antispam_engine PRIVATE /W4 /permissive- /utf-8)
 else()
