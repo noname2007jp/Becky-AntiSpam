@@ -1,5 +1,7 @@
 #include "antispam.hpp"
 #include "sqlite_store.hpp"
+#include "message_parser.hpp"
+#include "sha256.hpp"
 
 #include <cassert>
 #include <filesystem>
@@ -8,6 +10,58 @@
 using namespace beckyas;
 
 int main() {
+    std::string error;
+
+    // SHA-256 known-answer tests (FIPS 180-4).
+    assert(sha256_hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    assert(sha256_hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+
+    // Header unfolding, RFC 2047 Q decoding, MIME multipart and transfer decoding.
+    const std::string raw_mail =
+        "From: Example Sender <sender@example.jp>\\r\\n"
+        "Return-Path: <bounce@example.jp>\\r\\n"
+        "Subject: =?UTF-8?Q?Hello=20World?=\\r\\n"
+        "X-Long: first\\r\\n\\tsecond\\r\\n"
+        "Authentication-Results: mx.example; spf=pass; dkim=pass; dmarc=fail\\r\\n"
+        "MIME-Version: 1.0\\r\\n"
+        "Content-Type: multipart/mixed; boundary=\\\"mix-boundary\\\"\\r\\n"
+        "\\r\\n"
+        "--mix-boundary\\r\\n"
+        "Content-Type: text/plain; charset=UTF-8\\r\\n"
+        "Content-Transfer-Encoding: quoted-printable\\r\\n"
+        "\\r\\n"
+        "Hello=20mail=21\\r\\n"
+        "--mix-boundary\\r\\n"
+        "Content-Type: application/octet-stream\\r\\n"
+        "Content-Disposition: attachment; filename=\\\"sample.bin\\\"\\r\\n"
+        "Content-Transfer-Encoding: base64\\r\\n"
+        "\\r\\n"
+        "AAECAwQ=\\r\\n"
+        "--mix-boundary--\\r\\n";
+    MessageParser parser;
+    ParsedMail parsed;
+    assert(parser.parse(raw_mail, parsed, &error));
+    assert(parsed.message.from.find("sender@example.jp") != std::string::npos);
+    assert(parsed.message.return_path.find("bounce@example.jp") != std::string::npos);
+    assert(parsed.message.subject == "Hello World");
+    assert(parsed.message.body.find("Hello mail!") != std::string::npos);
+    assert(parsed.message.spf_result == "pass");
+    assert(parsed.message.dkim_result == "pass");
+    assert(parsed.message.dmarc_result == "fail");
+    assert(parsed.headers.size() >= 7);
+    assert(parsed.headers[3].name == "x-long");
+    assert(parsed.headers[3].value == "first second");
+    assert(parsed.attachments.size() == 1);
+    assert(parsed.attachments[0].filename == "sample.bin");
+    assert(parsed.mime_parts == 3);
+    assert(sha256_hex(raw_mail).size() == 64);
+
+    ParseLimits tiny_limits;
+    tiny_limits.max_message_bytes = 8;
+    MessageParser tiny_parser(tiny_limits);
+    ParsedMail rejected;
+    assert(!tiny_parser.parse(raw_mail, rejected, &error));
+
     Filter filter;
     Message clean;
     clean.from = "staff@example.jp";
@@ -60,7 +114,6 @@ int main() {
     std::filesystem::remove(db_path + "-shm");
     std::filesystem::remove(backup_path);
 
-    std::string error;
     SqliteStore store(db_path);
     assert(store.open(&error));
     const std::string spam_hash(64, 'a');
