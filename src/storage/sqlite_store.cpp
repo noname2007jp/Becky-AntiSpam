@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cctype>
 #include <filesystem>
+#include <exception>
 #include <limits>
 #include <string>
 #include <unordered_set>
@@ -325,33 +326,40 @@ bool SqliteStore::compact(std::size_t max_vocabulary,
         if (error) *error = "履歴保持日数は0以上を指定してください";
         return false;
     }
+
     // Keep one immediately preceding snapshot; never prune without a recoverable copy.
     if (!backup_to(database_path_ + ".precompact.bak", error)) return false;
-    if (!begin(db_, error)) return false;
 
-    Statement rare(db_, "DELETE FROM token_stats WHERE (spam_docs+ham_docs) < ?1");
-    if (!rare.ok()) { set_error(db_, error, "低頻度語削除SQLを準備できません"); rollback(db_); return false; }
-    sqlite3_bind_int64(rare.get(), 1, static_cast<sqlite3_int64>(min_total_frequency));
-    if (sqlite3_step(rare.get()) != SQLITE_DONE) { set_error(db_, error, "低頻度語を削除できません"); rollback(db_); return false; }
+    {
+        if (!begin(db_, error)) return false;
 
-    Statement excess(db_,
-        "DELETE FROM token_stats WHERE token NOT IN ("
-        " SELECT token FROM token_stats ORDER BY (spam_docs+ham_docs) DESC, token ASC LIMIT ?1)");
-    if (!excess.ok()) { set_error(db_, error, "語彙上限SQLを準備できません"); rollback(db_); return false; }
-    const auto capped = std::min<std::size_t>(max_vocabulary,
-        static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()));
-    sqlite3_bind_int64(excess.get(), 1, static_cast<sqlite3_int64>(std::max<std::size_t>(1, capped)));
-    if (sqlite3_step(excess.get()) != SQLITE_DONE) { set_error(db_, error, "語彙を整理できません"); rollback(db_); return false; }
+        Statement rare(db_, "DELETE FROM token_stats WHERE (spam_docs+ham_docs) < ?1");
+        if (!rare.ok()) { set_error(db_, error, "低頻度語削除SQLを準備できません"); rollback(db_); return false; }
+        const auto min_frequency = std::min<std::size_t>(min_total_frequency,
+            static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()));
+        sqlite3_bind_int64(rare.get(), 1, static_cast<sqlite3_int64>(min_frequency));
+        if (sqlite3_step(rare.get()) != SQLITE_DONE) { set_error(db_, error, "低頻度語を削除できません"); rollback(db_); return false; }
 
-    if (receipt_retention_days > 0) {
-        Statement receipts(db_, "DELETE FROM training_receipts WHERE trained_utc < ?1");
-        if (!receipts.ok()) { set_error(db_, error, "履歴整理SQLを準備できません"); rollback(db_); return false; }
-        const auto cutoff = now_utc() - static_cast<std::int64_t>(receipt_retention_days) * 86400;
-        sqlite3_bind_int64(receipts.get(), 1, cutoff);
-        if (sqlite3_step(receipts.get()) != SQLITE_DONE) { set_error(db_, error, "古い履歴を整理できません"); rollback(db_); return false; }
+        Statement excess(db_,
+            "DELETE FROM token_stats WHERE token NOT IN ("
+            " SELECT token FROM token_stats ORDER BY (spam_docs+ham_docs) DESC, token ASC LIMIT ?1)");
+        if (!excess.ok()) { set_error(db_, error, "語彙上限SQLを準備できません"); rollback(db_); return false; }
+        const auto capped = std::min<std::size_t>(max_vocabulary,
+            static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()));
+        sqlite3_bind_int64(excess.get(), 1, static_cast<sqlite3_int64>(std::max<std::size_t>(1, capped)));
+        if (sqlite3_step(excess.get()) != SQLITE_DONE) { set_error(db_, error, "語彙を整理できません"); rollback(db_); return false; }
+
+        if (receipt_retention_days > 0) {
+            Statement receipts(db_, "DELETE FROM training_receipts WHERE trained_utc < ?1");
+            if (!receipts.ok()) { set_error(db_, error, "履歴整理SQLを準備できません"); rollback(db_); return false; }
+            const auto cutoff = now_utc() - static_cast<std::int64_t>(receipt_retention_days) * 86400;
+            sqlite3_bind_int64(receipts.get(), 1, cutoff);
+            if (sqlite3_step(receipts.get()) != SQLITE_DONE) { set_error(db_, error, "古い履歴を整理できません"); rollback(db_); return false; }
+        }
+        if (!exec(db_, "COMMIT", error)) { rollback(db_); return false; }
     }
-    if (!exec(db_, "COMMIT", error)) { rollback(db_); return false; }
-    // WAL checkpoint plus VACUUM physically releases free pages after logical pruning.
+
+    // Finalize all write statements before checkpointing and rebuilding the database.
     if (!exec(db_, "PRAGMA wal_checkpoint(TRUNCATE)", error)) return false;
     if (!exec(db_, "VACUUM", error)) return false;
     return true;
