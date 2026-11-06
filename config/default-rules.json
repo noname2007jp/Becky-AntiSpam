@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "description": "初期判定ルール。実運用前に誤判定率を評価してください。",
+  "mode": "manual",
+  "thresholds": {
+    "review": 30,
+    "spam": 60
+  },
+  "authentication": {
+    "spf_fail": 25,
+    "dkim_fail": 20,
+    "dmarc_fail": 25
+  },
+  "headers": {
+    "from_return_path_domain_mismatch": 10
+  },
+  "content": {
+    "credential_urgency_lure": 15
+  },
+  "url": {
+    "ip_literal": 20,
+    "punycode": 10
+  },
+  "safety": {
+    "never_delete_messages": true,
+    "automatic_move_disabled_by_default": true,
+    "external_submission_disabled": true
+  }
+}
