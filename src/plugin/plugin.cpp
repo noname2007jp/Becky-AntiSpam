@@ -6,6 +6,7 @@
 #include "sqlite_store.hpp"
 
 #include <cstdio>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <memory>
