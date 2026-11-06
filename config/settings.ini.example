@@ -1,5 +1,5 @@
 ; Becky AntiSpam logging configuration
-; Files are stored under %APPDATA%\BeckyAntiSpam\
+; Files are stored under <Becky!インストール先>\Plugins\BeckyAntiSpam\
 [logging]
 ; 1=enable operational log, 0=disable all file logging
 enabled=1
