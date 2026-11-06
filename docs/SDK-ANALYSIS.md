@@ -109,12 +109,12 @@ int WINAPI BKC_OnRetrieve(LPCTSTR lpMessage, LPCTSTR lpMailID);
 
 ## 次の実装順
 
-1. Becky!本体のビット数と利用バージョンを確認。
-2. SDKヘッダーをプロジェクトに取り込み、最小DLL（PlugInInfo / Start / Exit）を作成。
-3. Becky!がDLLをロードすることを確認。
-4. `BKC_OnBeforeFilter2` で受信メールを読み取り、判定だけを行う監査モードを実装。
-5. 手動メニューと選択メール取得を実装。
-6. フォルダ移動は明示設定後に有効化し、標準フィルターとの共存を検証。
+1. Becky! 2.83.11（x86）とWin32 DLLの組み合わせで実機ロードを確認。
+2. `BKC_OnPlugInInfo` / `BKC_OnStart` / `BKC_OnExit` がBecky!から呼び出されることを確認。
+3. `BKC_OnBeforeFilter2` の発火、メール受信時間、標準フィルターとの共存を監査モードで確認。
+4. 判定結果をBecky!画面から確認できる表示・手動メニューを実装。
+5. 手動学習・選択メール一括処理を実装。
+6. 自動移動は誤判定率・実機試験・明示設定を満たした後に別途実装。削除機能は追加しない。
 
 
 ## 対象Becky!バージョン
