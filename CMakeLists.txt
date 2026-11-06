@@ -27,6 +27,7 @@ target_compile_definitions(sqlite3 PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_
 
 add_library(antispam_engine
     src/engine/antispam.cpp
+    src/engine/tokenizer.cpp
     src/parser/message_parser.cpp
     src/crypto/sha256.cpp
 )
