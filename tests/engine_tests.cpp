@@ -18,26 +18,26 @@ int main() {
 
     // Header unfolding, RFC 2047 Q decoding, MIME multipart and transfer decoding.
     const std::string raw_mail =
-        "From: Example Sender <sender@example.jp>\\r\\n"
-        "Return-Path: <bounce@example.jp>\\r\\n"
-        "Subject: =?UTF-8?Q?Hello=20World?=\\r\\n"
-        "X-Long: first\\r\\n\\tsecond\\r\\n"
-        "Authentication-Results: mx.example; spf=pass; dkim=pass; dmarc=fail\\r\\n"
-        "MIME-Version: 1.0\\r\\n"
-        "Content-Type: multipart/mixed; boundary=\\\"mix-boundary\\\"\\r\\n"
-        "\\r\\n"
-        "--mix-boundary\\r\\n"
-        "Content-Type: text/plain; charset=UTF-8\\r\\n"
-        "Content-Transfer-Encoding: quoted-printable\\r\\n"
-        "\\r\\n"
-        "Hello=20mail=21\\r\\n"
-        "--mix-boundary\\r\\n"
-        "Content-Type: application/octet-stream\\r\\n"
-        "Content-Disposition: attachment; filename=\\\"sample.bin\\\"\\r\\n"
-        "Content-Transfer-Encoding: base64\\r\\n"
-        "\\r\\n"
-        "AAECAwQ=\\r\\n"
-        "--mix-boundary--\\r\\n";
+        "From: Example Sender <sender@example.jp>\r\n"
+        "Return-Path: <bounce@example.jp>\r\n"
+        "Subject: =?UTF-8?Q?Hello=20World?=\r\n"
+        "X-Long: first\r\n\tsecond\r\n"
+        "Authentication-Results: mx.example; spf=pass; dkim=pass; dmarc=fail\r\n"
+        "MIME-Version: 1.0\r\n"
+        "Content-Type: multipart/mixed; boundary=\\"mix-boundary\\"\r\n"
+        "\r\n"
+        "--mix-boundary\r\n"
+        "Content-Type: text/plain; charset=UTF-8\r\n"
+        "Content-Transfer-Encoding: quoted-printable\r\n"
+        "\r\n"
+        "Hello=20mail=21\r\n"
+        "--mix-boundary\r\n"
+        "Content-Type: application/octet-stream\r\n"
+        "Content-Disposition: attachment; filename=\\"sample.bin\\"\r\n"
+        "Content-Transfer-Encoding: base64\r\n"
+        "\r\n"
+        "AAECAwQ=\r\n"
+        "--mix-boundary--\r\n";
     MessageParser parser;
     ParsedMail parsed;
     assert(parser.parse(raw_mail, parsed, &error));
