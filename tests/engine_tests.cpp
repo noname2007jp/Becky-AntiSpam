@@ -2,6 +2,7 @@
 #include "sqlite_store.hpp"
 #include "message_parser.hpp"
 #include "sha256.hpp"
+#include "tokenizer.hpp"
 
 #include <cassert>
 #include <filesystem>
@@ -15,6 +16,17 @@ int main() {
     // SHA-256 known-answer tests (FIPS 180-4).
     assert(sha256_hex("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
     assert(sha256_hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+
+    // UTF-8 Japanese fallback tokenizer: bigrams, katakana compounds and ASCII.
+    const auto jp_tokens = tokenize("無料キャンペーンに当選しました Phishing123 20261106");
+    const auto has_token = [&jp_tokens](const std::string& token) {
+        return std::find(jp_tokens.begin(), jp_tokens.end(), token) != jp_tokens.end();
+    };
+    assert(has_token("無料"));
+    assert(has_token("キャンペーン"));
+    assert(has_token("当選"));
+    assert(has_token("phishing123"));
+    assert(!has_token("20261106")); // pure numeric IDs are ignored
 
     // Header unfolding, RFC 2047 Q decoding, MIME multipart and transfer decoding.
     const std::string raw_mail =
@@ -60,6 +72,11 @@ int main() {
     assert(parsed.attachments[0].filename == "sample.bin");
     assert(parsed.mime_parts == 3);
     assert(sha256_hex(raw_mail).size() == 64);
+    const auto parsed_classifier_text = classifier_text(parsed.message);
+    assert(parsed_classifier_text.find("Hello World") != std::string::npos);
+    assert(parsed_classifier_text.find("Hello mail!") != std::string::npos);
+    assert(parsed_classifier_text.find("sender@example.jp") == std::string::npos); // no sender address in Bayes corpus
+
 
     ParseLimits tiny_limits;
     tiny_limits.max_message_bytes = 8;
