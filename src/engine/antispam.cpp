@@ -1,4 +1,4 @@
-#include "antispam.hpp"
+#include "antispam.hpp"\n#include "tokenizer.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -25,19 +25,7 @@ void add(Result& r, const char* id, int score, const char* reason) {
 }
 } // namespace
 
-std::vector<std::string> tokenize(const std::string& text) {
-    std::vector<std::string> out;
-    std::string token;
-    for (unsigned char c : lower(text)) {
-        if (std::isalnum(c) || c >= 0x80) token.push_back(static_cast<char>(c));
-        else if (token.size() >= 2) { out.push_back(token); token.clear(); }
-        else token.clear();
-    }
-    if (token.size() >= 2) out.push_back(token);
-    return out;
-}
-
-BayesianModel::BayesianModel(std::size_t max_vocabulary)
+std::string classifier_text(const Message& message) {\n    // Classification and caller-side training must use identical input fields.\n    return message.from + "\n" + message.subject + "\n" + message.headers + "\n" + message.body;\n}\n\nBayesianModel::BayesianModel(std::size_t max_vocabulary)
     : max_vocabulary_(std::max<std::size_t>(1, max_vocabulary)) {}
 
 void BayesianModel::restore(std::size_t spam_samples, std::size_t ham_samples,
