@@ -18,3 +18,9 @@ jobs:
         run: cmake --build build --config Release
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Upload Win32 plugin DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: BeckyAntiSpam-Win32
+          path: build/Release/BeckyAntiSpam.dll
+          if-no-files-found: error
