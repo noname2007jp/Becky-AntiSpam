@@ -42,16 +42,24 @@ struct Result {
 
 class BayesianModel {
 public:
+    explicit BayesianModel(std::size_t max_vocabulary = 50000);
     void train(const std::string& text, bool spam);
     double spam_probability(const std::string& text) const;
     std::size_t spam_samples() const noexcept { return spam_samples_; }
     std::size_t ham_samples() const noexcept { return ham_samples_; }
+    std::size_t vocabulary_size() const noexcept { return words_.size(); }
+    std::size_t max_vocabulary() const noexcept { return max_vocabulary_; }
+    // Removes low-frequency terms until the requested vocabulary limit is met.
+    std::size_t compact(std::size_t max_words, std::size_t min_total_frequency = 1);
+    // Applies proportional decay to all learned document counts (0 < factor < 1).
+    void decay(double factor);
 
 private:
     struct Counts { std::size_t spam = 0; std::size_t ham = 0; };
     std::unordered_map<std::string, Counts> words_;
     std::size_t spam_samples_ = 0;
     std::size_t ham_samples_ = 0;
+    std::size_t max_vocabulary_ = 50000;
 };
 
 class Filter {
