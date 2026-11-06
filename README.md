@@ -24,7 +24,7 @@ Becky!本体は32bitアプリケーションのみ提供されているため、
 - [x] Becky! 2.83.11 / Win32(x86) を対象に確定
 - [ ] 最小プラグインDLLとBecky!ロード確認
 - [ ] 最小プラグインDLLとBecky!実機ロード確認
-- [ ] MIME/ヘッダー解析
+- [x] MIME/ヘッダー解析（初期実装。文字コード変換は継続対応）
 - [ ] 日本語トークナイズ方式の検証（MeCab x86候補）
 - [x] ベイジアン学習・SQLite永続化（初期実装）
 - [x] 学習DBの容量管理・スリム化・バックアップ（初期API）
@@ -56,6 +56,8 @@ Becky!本体は32bitアプリケーションのみ提供されているため、
 
 - `src/engine`: Becky! に依存しない判定エンジン
 - `src/storage`: SQLite学習データストア
+- `src/parser`: RFC 5322 / MIMEメール解析
+- `src/crypto`: SHA-256
 - `src/plugin`: Becky! SDK アダプター
 - `tests`: 単体テスト
 - `config`: 初期ルール
