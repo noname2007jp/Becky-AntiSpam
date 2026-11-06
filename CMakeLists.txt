@@ -49,7 +49,18 @@ else()
     target_compile_options(antispam_storage PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_library(antispam_pipeline
+    src/pipeline/mail_pipeline.cpp
+)
+target_include_directories(antispam_pipeline PUBLIC src/pipeline)
+target_link_libraries(antispam_pipeline PUBLIC antispam_engine antispam_storage)
+if(MSVC)
+    target_compile_options(antispam_pipeline PRIVATE /W4 /permissive- /utf-8)
+else()
+    target_compile_options(antispam_pipeline PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 add_executable(antispam_tests tests/engine_tests.cpp)
-target_link_libraries(antispam_tests PRIVATE antispam_engine antispam_storage)
+target_link_libraries(antispam_tests PRIVATE antispam_engine antispam_storage antispam_pipeline)
 enable_testing()
 add_test(NAME antispam_engine_tests COMMAND antispam_tests)
