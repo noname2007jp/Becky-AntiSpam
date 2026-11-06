@@ -14,6 +14,8 @@
 #include <mutex>
 #include <string>
 
+void initialize_settings_menu(HWND, HMENU, int);
+
 namespace {
 constexpr std::size_t kMaxMessageBytes = 5u * 1024u * 1024u;
 constexpr std::uint64_t kDefaultLogLimit = 5u * 1024u * 1024u;
@@ -126,7 +128,10 @@ int WINAPI BKC_OnExit() {
     } catch (...) {}
     return 0;
 }
-int WINAPI BKC_OnMenuInit(HWND, HMENU, int) { return 0; }
+int WINAPI BKC_OnMenuInit(HWND hwnd, HMENU menu, int type) {
+    initialize_settings_menu(hwnd, menu, type);
+    return 0;
+}
 int WINAPI BKC_OnPlugInInfo(PluginInfo* info) {
     if (!info) return 0;
     std::strncpy(info->name, "Becky AntiSpam", sizeof(info->name) - 1);
