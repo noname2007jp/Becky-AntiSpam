@@ -545,8 +545,11 @@ bool SqliteStore::restore_from(const std::string& source_path, std::string* erro
             "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN "
             "('meta','token_stats','training_receipts','address_rules','ai_reviews')",
             -1, &schema, nullptr);
+        // Current schema version 1 creates these three tables.
+        // address_rules / ai_reviews are reserved for future features and are not
+        // present in the current database implementation.
         valid = rc == SQLITE_OK && sqlite3_step(schema) == SQLITE_ROW &&
-            sqlite3_column_int(schema, 0) == 5;
+            sqlite3_column_int(schema, 0) == 3;
         if (schema) sqlite3_finalize(schema);
     }
     if (!valid) {
