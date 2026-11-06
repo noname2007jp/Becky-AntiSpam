@@ -49,6 +49,9 @@ public:
     std::size_t ham_samples() const noexcept { return ham_samples_; }
     std::size_t vocabulary_size() const noexcept { return words_.size(); }
     std::size_t max_vocabulary() const noexcept { return max_vocabulary_; }
+    struct TokenCount { std::string token; std::size_t spam_docs = 0; std::size_t ham_docs = 0; };
+    void restore(std::size_t spam_samples, std::size_t ham_samples,
+                 const std::vector<TokenCount>& token_counts);
     // Removes low-frequency terms until the requested vocabulary limit is met.
     std::size_t compact(std::size_t max_words, std::size_t min_total_frequency = 1);
     // Applies proportional decay to all learned document counts (0 < factor < 1).
