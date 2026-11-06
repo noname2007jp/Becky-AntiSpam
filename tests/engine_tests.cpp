@@ -270,6 +270,3 @@ int main() {
     std::cout << "All Becky AntiSpam engine and storage tests passed.\n";
     return 0;
 }
-\n";
-    return 0;
-}
