@@ -4,7 +4,9 @@
 #include <shellapi.h>
 
 #include <string>
+#include <filesystem>
 #include <cwchar>
+#include "data_paths.hpp"
 
 namespace {
 using RegisterCommandFn = UINT (WINAPI*)(LPCSTR, int, void (CALLBACK*)(HWND, LPARAM));
@@ -33,14 +35,17 @@ HWND control(HWND parent, const wchar_t* cls, const wchar_t* text, DWORD style,
     return v;
 }
 bool paths() {
-    wchar_t app[MAX_PATH]{};
-    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA | CSIDL_FLAG_CREATE,
-                                nullptr, SHGFP_TYPE_CURRENT, app))) return false;
-    g_dir = app; g_dir += L"\\BeckyAntiSpam";
-    if (!CreateDirectoryW(g_dir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
+    std::filesystem::path directory;
+    std::wstring error;
+    if (!beckyas::plugin::prepare_data_directory(directory, &error)) {
+        MessageBoxW(nullptr, error.c_str(), L"Becky AntiSpam", MB_OK | MB_ICONERROR);
+        return false;
+    }
+    g_dir = directory.wstring();
     g_ini = g_dir + L"\\settings.ini";
     return true;
 }
+
 void toggle_test() {
     if (g_test) EnableWindow(g_test, SendMessageW(g_log, BM_GETCHECK, 0, 0) == BST_CHECKED);
 }
