@@ -108,6 +108,24 @@ int main() {
     std::filesystem::remove(db_path + "-shm");
     std::filesystem::remove(backup_path);
     std::filesystem::remove(db_path + ".precompact.bak");
+
+    const auto capped_path = (temp / "becky_antispam_vocab_cap.sqlite3").string();
+    std::filesystem::remove(capped_path);
+    std::filesystem::remove(capped_path + "-wal");
+    std::filesystem::remove(capped_path + "-shm");
+    std::string many_words;
+    for (int i = 0; i < 110; ++i) many_words += "token" + std::to_string(i) + " ";
+    SqliteStore capped_store(capped_path, 3);
+    assert(capped_store.open(&error));
+    assert(capped_store.train_once(std::string(64, 'd'), many_words, true, &error) == TrainStatus::Trained);
+    StoreStats capped_stats;
+    assert(capped_store.get_stats(capped_stats, &error));
+    assert(capped_stats.vocabulary_size <= 3);
+    capped_store.close();
+    std::filesystem::remove(capped_path);
+    std::filesystem::remove(capped_path + "-wal");
+    std::filesystem::remove(capped_path + "-shm");
+
     std::cout << "All Becky AntiSpam engine and storage tests passed.\n";
     return 0;
 }
