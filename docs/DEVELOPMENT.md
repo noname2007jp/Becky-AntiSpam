@@ -78,3 +78,16 @@ GitHub ActionsのWin32/x86構成でDLLビルド・単体テスト・成果物ア
 - AIの未確認判定を確定学習へ直接投入しない。
 - スリム化後の誤検知率・見逃し率を回帰テストする。
 
+
+
+## ログ・テストモード
+
+設定ファイルは `%APPDATA%\\BeckyAntiSpam\\settings.ini`。未作成時の既定値は通常ログON、詳細テストログOFF。
+
+- `[logging] enabled=1|0`: `operation.log` の出力切り替え。OFFならファイルログをすべて停止。
+- `[test_mode] enabled=1|0`: `test-detail.log` の詳細出力切り替え。通常ログとは独立してON/OFF可能。ただし logging.enabled=0 の場合はどちらも停止。
+- 通常ログは判定区分・スコア・初期化／処理エラー等を記録し、約5MiBで1世代ローテーション。
+- 詳細ログは入力サイズ、MIME構成、Bayes確率、学習件数、語彙数、判定ルールと理由、解析警告、内部エラーを記録し、約20MiBで1世代ローテーション。
+- メール本文・件名・送信者・ヘッダー値はログへ出力しない。テストログは機密情報を含む可能性がある運用環境では無効にする。
+
+設定例は [settings.ini.example](../config/settings.ini.example)。
