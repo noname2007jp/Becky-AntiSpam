@@ -4,15 +4,28 @@ Becky! Internet Mail 専用の迷惑メールフィルタープラグインを�
 
 ## 開発方針
 
-- 対象: Windows 64-bit
+- 対象: 64bit Windows上で動作するBecky!（プラグインDLLはBecky!本体と同じビット数）
 - 処理モード: 自動振り分け / 手動判定を設定で切り替え
 - 判定方式: ルール判定 + ベイジアン学習 + スコアリング
 - プライバシー: メール本文・ヘッダー・学習データは原則ローカル保存。外部送信しない
 - 安全性: 初期設定は「判定のみ」。自動移動は利用者が明示的に有効化する
 
+## SDK確認状況
+
+Becky! Plug-In SDKを入手し、受信前フィルター用の `BKC_OnBeforeFilter2`、受信後通知用の `BKC_OnRetrieve`、手動操作に使えるメール取得・移動APIを確認しました。詳細は [SDK調査結果](docs/SDK-ANALYSIS.md) を参照してください。
+
+SDKのサンプルプロジェクトはWin32構成のみです。64bit Windows上で32bit版Becky!を使う場合はx86 DLLが必要です。Becky!本体のビット数を実機確認するまでは、x64 DLL対応を確定扱いにしません。
+
 ## 開発状況
 
-現在は初期設計・判定エンジンの土台を整備する段階です。Becky! SDK の実際のヘッダー/APIと64bit ABIを確認するまで、プラグインDLLの入口やメール移動APIは実装済みと扱いません。
+- [x] 初期判定エンジンの骨格
+- [x] SDK API / コールバックの一次調査
+- [ ] 最小プラグインDLLとBecky!ロード確認
+- [ ] MIME/ヘッダー解析
+- [ ] ベイジアン学習の永続化
+- [ ] 手動判定・学習操作
+- [ ] 自動振り分け
+- [ ] Windows CIでDLLビルド・テスト
 
 ## 機能計画
 
@@ -22,17 +35,17 @@ Becky! Internet Mail 専用の迷惑メールフィルタープラグインを�
 4. 判定スコアと判定理由
 5. 手動判定・学習操作
 6. 自動振り分け（SDKで安全な移動APIを確認後）
-7. Becky! Plug-In SDK に基づく x64 DLL 統合
-8. GitHub Actions による Windows x64 ビルド・テスト
+7. Becky! Plug-In SDK に基づくDLL統合
+8. GitHub Actions によるWindowsビルド・テスト
 
-## ディレクトリ構成（予定）
+## ディレクトリ構成
 
 - `src/engine`: Becky! に依存しない判定エンジン
-- `src/plugin`: Becky! SDK アダプター（SDK確認後に実装）
+- `src/plugin`: Becky! SDK アダプター
 - `tests`: 単体テスト
 - `config`: 初期ルール
-- `.github/workflows`: Windows x64 CI
+- `.github/workflows`: Windows CI
 
 ## ビルド
 
-CMake と Visual Studio 2022 (x64) を使用する予定です。具体的なビルド手順は SDK の導入方法が確定した時点で追記します。
+CMake と Visual Studio 2022 を使用します。Becky!本体のビット数確認後、プラグインDLLのターゲットアーキテクチャを確定します。
