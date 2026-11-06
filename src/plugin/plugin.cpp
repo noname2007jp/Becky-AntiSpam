@@ -41,9 +41,10 @@ bool initialize_plugin() {
 
     const int utf8_size = WideCharToMultiByte(CP_UTF8, 0, appdata, -1, nullptr, 0, nullptr, nullptr);
     if (utf8_size <= 1) return false;
-    std::string appdata_utf8(static_cast<std::size_t>(utf8_size - 1), '\0');
+    std::string appdata_utf8(static_cast<std::size_t>(utf8_size), '\0');
     if (WideCharToMultiByte(CP_UTF8, 0, appdata, -1, appdata_utf8.data(),
                             utf8_size, nullptr, nullptr) <= 0) return false;
+    appdata_utf8.pop_back();
 
     const std::string data_dir_utf8 = appdata_utf8 + "\\BeckyAntiSpam";
     g_data_dir = std::filesystem::u8path(data_dir_utf8);
