@@ -22,8 +22,8 @@ Becky!本体は32bitアプリケーションのみ提供されているため、
 - [x] 初期判定エンジンの骨格
 - [x] SDK API / コールバックの一次調査
 - [x] Becky! 2.83.11 / Win32(x86) を対象に確定
-- [ ] 最小プラグインDLLとBecky!ロード確認
-- [ ] 最小プラグインDLLとBecky!実機ロード確認
+- [x] 監査専用Becky!プラグインDLL（Win32/x86）の実装・CIビルド
+- [ ] Becky! 2.83.11でのDLLロード・受信コールバック実機確認
 - [x] MIME/ヘッダー解析（multipart、Base64、quoted-printable、Windows日本語文字コード変換）
 - [x] SHA-256ハッシュ生成（生メールの完全一致識別用）
 - [x] 日本語フォールバックトークナイザー（UTF-8文字単位・日本語2-gram・カタカナ複合語）
@@ -35,7 +35,7 @@ Becky!本体は32bitアプリケーションのみ提供されているため、
 - [ ] URL/添付ファイル等の補助判定
 - [ ] AI API補助判定（初期OFF・非同期・ユーザー確認後に学習）
 - [ ] 自動振り分け（監査試験後）
-- [ ] Windows x86 CIでDLLビルド・テスト
+- [x] Windows x86 CIでDLLビルド・テスト・成果物アップロード
 
 ## 仕様・ロードマップ
 
@@ -69,4 +69,14 @@ Becky!本体は32bitアプリケーションのみ提供されているため、
 
 ## ビルド
 
-CMake と Visual Studio 2022 を使用し、`-A Win32` でビルドします。Becky! SDKの実ヘッダーを使ったDLL統合は、最小プラグインのロード確認後に進めます。
+CMake と Visual Studio を使用し、`-A Win32` でビルドします。
+
+```powershell
+cmake -S . -B build -A Win32
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
+
+DLLは `build/Release/BeckyAntiSpam.dll` に生成されます。GitHub Actionsの [Windows x86 build](https://github.com/noname2007jp/Becky-AntiSpam/actions) からも `BeckyAntiSpam-Win32` アーティファクトを取得できます。
+
+現段階のDLLは監査専用です。Becky!の `PlugIns` フォルダーへ配置してロード確認する前に、既存設定・メールデータのバックアップを推奨します。メールの移動・削除は行いません。監査ログと学習DBは `%APPDATA%\\BeckyAntiSpam\\` に作成されます。
