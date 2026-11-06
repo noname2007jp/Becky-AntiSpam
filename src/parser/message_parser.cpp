@@ -134,7 +134,6 @@ std::string decode_words(const std::string& input) {
         const auto charset = input.substr(begin + 2, q1 - begin - 2);
         if (encoding == "b" || encoding == "q") out += charset_to_utf8(decoded, charset);
         else out += decoded;
-        else out.append(input.substr(begin, end + 2 - begin));
         pos = end + 2;
         // RFC 2047 adjacent encoded-words are separated by ignorable linear whitespace.
         if (pos < input.size() && (input[pos] == ' ' || input[pos] == '\t')) {
