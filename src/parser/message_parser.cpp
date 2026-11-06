@@ -282,18 +282,14 @@ bool MessageParser::parse(const std::string& raw_message, ParsedMail& output, st
     output.message.from = decode_words(header_value(output.headers, "from"));
     output.message.return_path = decode_words(header_value(output.headers, "return-path"));
     output.message.subject = decode_words(header_value(output.headers, "subject"));
-    std::string auth;
     for (const auto& f : output.headers) {
-        if (f.name == "authentication-results") auth += f.value + "\n";
+        if (f.name == "authentication-results") {
+            output.authentication_results.push_back(f.value);
+        }
     }
-    output.message.headers = auth;
-    const auto lower_auth = lower_ascii(auth);
-    if (lower_auth.find("spf=fail") != std::string::npos) output.message.spf_result = "fail";
-    else if (lower_auth.find("spf=pass") != std::string::npos) output.message.spf_result = "pass";
-    if (lower_auth.find("dkim=fail") != std::string::npos) output.message.dkim_result = "fail";
-    else if (lower_auth.find("dkim=pass") != std::string::npos) output.message.dkim_result = "pass";
-    if (lower_auth.find("dmarc=fail") != std::string::npos) output.message.dmarc_result = "fail";
-    else if (lower_auth.find("dmarc=pass") != std::string::npos) output.message.dmarc_result = "pass";
+    // Authentication-Results is attacker-spoofable unless its authserv-id is
+    // explicitly trusted by the receiving environment. Do not feed it to rules yet.
+
 
     MimeContext ctx{limits_, output};
     // Parse the complete entity so the root Content-Type and transfer-encoding apply.
