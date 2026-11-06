@@ -111,14 +111,20 @@ bool wide_path_to_utf8(const std::filesystem::path& path, std::string& out) {
     const auto value = path.wstring();
     const int n = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, nullptr, 0, nullptr, nullptr);
     if (n <= 1) return false;
-    out.resize(static_cast<std::size_t>(n - 1));
-    return WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, out.data(), n, nullptr, nullptr) > 0;
+    out.resize(static_cast<std::size_t>(n));
+    if (WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, out.data(), n, nullptr, nullptr) <= 0) {
+        out.clear();
+        return false;
+    }
+    out.pop_back();
+    return true;
 }
 }
 
 bool export_plugin_data(const wchar_t* folder, std::wstring& error) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_store || !g_store->is_open()) { error = L"学習DBが初期化されていません。"; return false; }
+    if (!folder || !*folder) { error = L"フォルダーが指定されていません。"; return false; }
     const std::filesystem::path dir(folder);
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
@@ -130,7 +136,12 @@ bool export_plugin_data(const wchar_t* folder, std::wstring& error) {
         error = L"学習DBのエクスポートに失敗しました: " + std::wstring(db_error.begin(), db_error.end());
         return false;
     }
-    if (!CopyFileW((g_data_dir / L"settings.ini").c_str(), (dir / L"settings.ini").c_str(), FALSE)) {
+    const auto settings_path = g_data_dir / L"settings.ini";
+    if (!std::filesystem::exists(settings_path)) {
+        WritePrivateProfileStringW(L"logging", L"enabled", L"1", settings_path.c_str());
+        WritePrivateProfileStringW(L"test_mode", L"enabled", L"0", settings_path.c_str());
+    }
+    if (!CopyFileW(settings_path.c_str(), (dir / L"settings.ini").c_str(), FALSE)) {
         error = L"設定ファイルをコピーできませんでした。";
         return false;
     }
