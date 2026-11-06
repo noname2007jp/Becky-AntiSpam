@@ -33,6 +33,22 @@ int main() {
     }
     assert(model.spam_probability("無料 賞金 当選") >
            model.spam_probability("会議 議事録"));
+
+    BayesianModel bounded(3);
+    bounded.train("alpha beta gamma", true);
+    bounded.train("delta epsilon zeta", false);
+    assert(bounded.vocabulary_size() <= 3);
+    assert(bounded.max_vocabulary() == 3);
+    const auto removed = bounded.compact(2, 1);
+    assert(removed >= 1);
+    assert(bounded.vocabulary_size() <= 2);
+
+    const auto before_decay = model.spam_samples();
+    model.decay(0.5);
+    assert(model.spam_samples() <= before_decay);
+    const auto unchanged = model.spam_samples();
+    model.decay(1.0); // invalid factor is ignored
+    assert(model.spam_samples() == unchanged);
     std::cout << "All Becky AntiSpam engine tests passed.\n";
     return 0;
 }
