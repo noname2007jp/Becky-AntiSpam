@@ -81,6 +81,8 @@ ctest --test-dir build -C Release --output-on-failure
 
 DLLは `build/Release/BeckyAntiSpam.dll` に生成されます。GitHub Actionsの [Windows x86 build](https://github.com/noname2007jp/Becky-AntiSpam/actions) からも `BeckyAntiSpam-Win32` アーティファクトを取得できます。
 
+設定GUIはWindows用の `BeckyAntiSpamConfig.exe` としてビルドされます。プラグインと同じ `%APPDATA%\\BeckyAntiSpam\\settings.ini` を編集し、現時点では通常ログ／詳細テストログのON/OFFを変更できます。設定変更後はBecky!を再起動してください。GUIはまだBecky!のメニューには統合していないため、単体で起動します。
+
 ログ設定は `%APPDATA%\\BeckyAntiSpam\\settings.ini` で変更できます。
 
 ```ini
