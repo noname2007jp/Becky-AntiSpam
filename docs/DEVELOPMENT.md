@@ -82,7 +82,7 @@ GitHub ActionsのWin32/x86構成でDLLビルド・単体テスト・成果物ア
 
 ## ログ・テストモード
 
-設定ファイルは `%APPDATA%\\BeckyAntiSpam\\settings.ini`。未作成時の既定値は通常ログON、詳細テストログOFF。
+設定ファイルは `<Becky!インストール先>\\Plugins\\BeckyAntiSpam\\settings.ini`。未作成時の既定値は通常ログON、詳細テストログOFF。
 
 - `[logging] enabled=1|0`: `operation.log` の出力切り替え。OFFならファイルログをすべて停止。
 - `[test_mode] enabled=1|0`: `test-detail.log` の詳細出力切り替え。通常ログとは独立してON/OFF可能。ただし logging.enabled=0 の場合はどちらも停止。
@@ -91,3 +91,8 @@ GitHub ActionsのWin32/x86構成でDLLビルド・単体テスト・成果物ア
 - メール本文・件名・送信者・ヘッダー値はログへ出力しない。テストログは機密情報を含む可能性がある運用環境では無効にする。
 
 設定例は [settings.ini.example](../config/settings.ini.example)。
+
+
+### ポータブルデータフォルダー
+
+データ保存先は Becky! 実行ファイルのあるディレクトリー直下の `Plugins\\BeckyAntiSpam\\`。設定GUIとDLLは共通ヘルパー `src/plugin/data_paths.hpp` を使用する。初回起動時、旧 `%APPDATA%\\BeckyAntiSpam\\` のファイルを新保存先へファイル単位でコピーし、移行先に同名ファイルがある場合は上書きしない。SQLiteの `-wal` / `-shm` もコピー対象。旧フォルダーは保持する。移行先の書き込み可否を起動時に検査する。
