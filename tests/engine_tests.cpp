@@ -48,6 +48,8 @@ int main() {
     assert(parsed.authentication_results.size() == 1);
     assert(parsed.authentication_results[0].find("spf=pass") != std::string::npos);
     // Untrusted authentication headers must not influence classifier inputs.
+    assert(!parsed.message.trusted_authentication_results);
+    assert(!parsed.message.trusted_return_path);
     assert(parsed.message.spf_result.empty());
     assert(parsed.message.dkim_result.empty());
     assert(parsed.message.dmarc_result.empty());
@@ -79,6 +81,8 @@ int main() {
     suspicious.subject = "至急ご確認ください";
     suspicious.body = "アカウントを停止します。今すぐログインしてください。"
                       " https://192.0.2.10/login";
+    suspicious.trusted_return_path = true;
+    suspicious.trusted_authentication_results = true;
     suspicious.spf_result = "fail";
     suspicious.dmarc_result = "fail";
     const auto result = filter.classify(suspicious);
