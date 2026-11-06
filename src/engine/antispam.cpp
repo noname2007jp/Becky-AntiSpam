@@ -37,6 +37,9 @@ std::vector<std::string> tokenize(const std::string& text) {
     return out;
 }
 
+BayesianModel::BayesianModel(std::size_t max_vocabulary)
+    : max_vocabulary_(std::max<std::size_t>(1, max_vocabulary)) {}
+
 void BayesianModel::train(const std::string& text, bool spam) {
     if (spam) ++spam_samples_; else ++ham_samples_;
     std::unordered_set<std::string> unique;
@@ -44,6 +47,46 @@ void BayesianModel::train(const std::string& text, bool spam) {
     for (const auto& word : unique) {
         auto& count = words_[word];
         if (spam) ++count.spam; else ++count.ham;
+    }
+    if (words_.size() > max_vocabulary_) compact(max_vocabulary_);
+}
+
+std::size_t BayesianModel::compact(std::size_t max_words, std::size_t min_total_frequency) {
+    std::vector<std::pair<std::string, std::size_t>> ranked;
+    ranked.reserve(words_.size());
+    for (const auto& entry : words_) {
+        const auto total = entry.second.spam + entry.second.ham;
+        if (total < min_total_frequency) continue;
+        ranked.emplace_back(entry.first, total);
+    }
+    std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) {
+        if (a.second != b.second) return a.second > b.second;
+        return a.first < b.first;
+    });
+
+    std::unordered_set<std::string> keep;
+    const auto keep_count = std::min(max_words, ranked.size());
+    keep.reserve(keep_count);
+    for (std::size_t i = 0; i < keep_count; ++i) keep.insert(ranked[i].first);
+
+    const auto before = words_.size();
+    for (auto it = words_.begin(); it != words_.end();) {
+        if (keep.find(it->first) == keep.end()) it = words_.erase(it);
+        else ++it;
+    }
+    max_vocabulary_ = std::max<std::size_t>(1, max_words);
+    return before - words_.size();
+}
+
+void BayesianModel::decay(double factor) {
+    if (!(factor > 0.0 && factor < 1.0)) return;
+    spam_samples_ = static_cast<std::size_t>(std::floor(spam_samples_ * factor));
+    ham_samples_ = static_cast<std::size_t>(std::floor(ham_samples_ * factor));
+    for (auto it = words_.begin(); it != words_.end();) {
+        it->second.spam = static_cast<std::size_t>(std::floor(it->second.spam * factor));
+        it->second.ham = static_cast<std::size_t>(std::floor(it->second.ham * factor));
+        if (it->second.spam == 0 && it->second.ham == 0) it = words_.erase(it);
+        else ++it;
     }
 }
 
