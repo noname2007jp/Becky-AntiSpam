@@ -288,6 +288,7 @@ TrainStatus SqliteStore::train_once(const std::string& message_hash,
         }
     }
 
+    std::size_t current_vocabulary = 0;
     {
         Statement count(db_, "SELECT count(*) FROM token_stats");
         if (!count.ok() || sqlite3_step(count.get()) != SQLITE_ROW) {
@@ -295,42 +296,27 @@ TrainStatus SqliteStore::train_once(const std::string& message_hash,
             rollback(db_);
             return TrainStatus::Error;
         }
-        const auto current = static_cast<std::size_t>(sqlite3_column_int64(count.get(), 0));
-        const auto extra = std::max<std::size_t>(100, max_vocabulary_ / 20);
-        const auto trigger = max_vocabulary_ > std::numeric_limits<std::size_t>::max() - extra
-            ? std::numeric_limits<std::size_t>::max() : max_vocabulary_ + extra;
-        if (current > trigger) {
-            // Finalize the count query before pruning the same table.
-        }
+        current_vocabulary = static_cast<std::size_t>(sqlite3_column_int64(count.get(), 0));
     }
-    {
-        Statement count(db_, "SELECT count(*) FROM token_stats");
-        if (!count.ok() || sqlite3_step(count.get()) != SQLITE_ROW) {
-            set_error(db_, error, "語彙数を確認できません");
+    const auto extra = std::max<std::size_t>(100, max_vocabulary_ / 20);
+    const auto trigger = max_vocabulary_ > std::numeric_limits<std::size_t>::max() - extra
+        ? std::numeric_limits<std::size_t>::max() : max_vocabulary_ + extra;
+    if (current_vocabulary > trigger) {
+        Statement prune(db_,
+            "DELETE FROM token_stats WHERE token NOT IN ("
+            " SELECT token FROM token_stats ORDER BY (spam_docs+ham_docs) DESC, token ASC LIMIT ?1)");
+        if (!prune.ok()) {
+            set_error(db_, error, "語彙上限SQLを準備できません");
             rollback(db_);
             return TrainStatus::Error;
         }
-        const auto current = static_cast<std::size_t>(sqlite3_column_int64(count.get(), 0));
-        const auto extra = std::max<std::size_t>(100, max_vocabulary_ / 20);
-        const auto trigger = max_vocabulary_ > std::numeric_limits<std::size_t>::max() - extra
-            ? std::numeric_limits<std::size_t>::max() : max_vocabulary_ + extra;
-        if (current > trigger) {
-            Statement prune(db_,
-                "DELETE FROM token_stats WHERE token NOT IN ("
-                " SELECT token FROM token_stats ORDER BY (spam_docs+ham_docs) DESC, token ASC LIMIT ?1)");
-            if (!prune.ok()) {
-                set_error(db_, error, "語彙上限SQLを準備できません");
-                rollback(db_);
-                return TrainStatus::Error;
-            }
-            sqlite3_bind_int64(prune.get(), 1, static_cast<sqlite3_int64>(
-                std::min<std::size_t>(max_vocabulary_,
-                    static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()))));
-            if (sqlite3_step(prune.get()) != SQLITE_DONE) {
-                set_error(db_, error, "語彙上限を適用できません");
-                rollback(db_);
-                return TrainStatus::Error;
-            }
+        sqlite3_bind_int64(prune.get(), 1, static_cast<sqlite3_int64>(
+            std::min<std::size_t>(max_vocabulary_,
+                static_cast<std::size_t>(std::numeric_limits<sqlite3_int64>::max()))));
+        if (sqlite3_step(prune.get()) != SQLITE_DONE) {
+            set_error(db_, error, "語彙上限を適用できません");
+            rollback(db_);
+            return TrainStatus::Error;
         }
     }
 
