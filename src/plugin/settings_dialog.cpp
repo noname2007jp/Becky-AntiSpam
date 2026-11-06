@@ -4,6 +4,7 @@
 #include <shellapi.h>
 
 #include <string>
+#include <cwchar>
 
 namespace {
 using RegisterCommandFn = UINT (WINAPI*)(LPCSTR, int, void (CALLBACK*)(HWND, LPARAM));
