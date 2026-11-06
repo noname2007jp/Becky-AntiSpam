@@ -93,6 +93,20 @@ int WINAPI BKC_OnRetrieve(LPCTSTR lpMessage, LPCTSTR lpMailID);
 4. メールソースはサイズ上限を決めて安全に処理し、過大メールや不正MIMEでBecky!を停止させない。
 5. メール本文・ヘッダー・学習情報を外部送信しない。
 
+## 監査専用DLLの初期実装
+
+`src/plugin/plugin.cpp` と `BeckyAntiSpam.def` に、以下のコールバックを実装した。
+
+- `BKC_OnPlugInInfo`: プラグイン名・ベンダー・バージョン・説明を返す。
+- `BKC_OnStart` / `BKC_OnExit`: ローカルDBと処理パイプラインを初期化・解放する。
+- `BKC_OnBeforeFilter2`: メールを解析・判定し、判定結果とスコアだけを監査ログへ記録する。
+- フィルター戻り値は常に `BKC_FILTER_DEFAULT`。アクションは `ACTION_NOTHING` とし、Becky!標準ルールを変更しない。
+- 学習DBと監査ログは `%APPDATA%\\BeckyAntiSpam\\` に保存する。監査ログは判定区分・スコア・Bayes確率のみで、本文・件名・差出人を記録しない。
+- 監査ログは約1MiBで1世代ローテーションする。
+- 受信コールバック内の例外を外へ伝播させない。
+
+これは最小の監査用実装であり、Becky! 2.83.11でのDLLロード、コールバック発火、受信処理への影響は未検証。自動移動・削除・外部通信は実装していない。
+
 ## 次の実装順
 
 1. Becky!本体のビット数と利用バージョンを確認。
