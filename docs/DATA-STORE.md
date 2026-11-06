@@ -11,7 +11,7 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
+    value INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS token_stats (
@@ -25,10 +25,9 @@ CREATE INDEX IF NOT EXISTS idx_token_stats_last_seen
     ON token_stats(last_seen_utc);
 
 CREATE TABLE IF NOT EXISTS training_receipts (
-    message_hash BLOB PRIMARY KEY,
+    message_hash TEXT PRIMARY KEY CHECK (length(message_hash) = 64),
     label INTEGER NOT NULL CHECK (label IN (0, 1)),
-    trained_utc INTEGER NOT NULL,
-    source INTEGER NOT NULL DEFAULT 0
+    trained_utc INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_training_receipts_trained
@@ -62,7 +61,7 @@ CREATE TABLE IF NOT EXISTS ai_reviews (
 ## トランザクション
 
 1. メールハッシュを `training_receipts` にINSERTする。
-2. UNIQUE制約違反なら二重学習として処理を中止する。
+2. UNIQUE制約違反なら既存ラベルを確認し、同じラベルなら二重学習として中止、異なるラベルなら訂正として差分更新する。
 3. トークンを重複排除し、`token_stats` をUPSERTする。
 4. 全処理を1トランザクションで確定する。途中失敗時はROLLBACK。
 
@@ -99,7 +98,7 @@ CREATE TABLE IF NOT EXISTS ai_reviews (
 - アーカイブは公式配布物のSHA3-256値をCMakeで検証する。
 - `SqliteStore` がDB初期化、スキーマバージョン管理、WAL、学習、復元、統計、バックアップ、整合性確認、明示的な圧縮を担当する。
 - 学習処理は `BEGIN IMMEDIATE` から始め、メールハッシュ登録・単語統計更新・学習件数更新を一括コミットする。
-- 同じSHA-256ハッシュが既に登録されている場合は `Duplicate` を返し、統計を加算しない。
+- 同じSHA-256ハッシュ・同じラベルなら `Duplicate` を返して統計を変更しない。ラベルが異なる場合は `Reclassified` として、旧ラベルの単語頻度・学習件数を減算し、新ラベルへ加算する。
 - DBにはトークン別の文書頻度、学習件数、SHA-256ハッシュ、学習日時のみを保存する。本文・完全ヘッダー・添付ファイルは保存しない。
 - `compact()` は実行前に `.precompact.bak` へバックアップし、低頻度語・語彙上限超過分・保持期限を過ぎた学習履歴を整理した後、WALチェックポイントとVACUUMを実行する。
 - 履歴保持日数に0を指定すると学習履歴の期限削除を行わない。期限削除後は古いメールが再学習される可能性がある。
