@@ -116,7 +116,7 @@ void CALLBACK show_settings(HWND owner, LPARAM) {
     static bool registered = false;
     if (!registered) {
         WNDCLASSEXW wc{}; wc.cbSize = sizeof(wc); wc.lpfnWndProc = dialog_proc;
-        wc.hInstance = GetModuleHandleW(nullptr); wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hInstance = GetModuleHandleW(nullptr); wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
         wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1); wc.lpszClassName = cls;
         if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return;
         registered = true;
