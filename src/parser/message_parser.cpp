@@ -198,6 +198,10 @@ void parse_entity(const std::string& entity, std::size_t depth, MimeContext& ctx
     ++ctx.output.mime_parts;
     const auto split = entity.find("\r\n\r\n") != std::string::npos
         ? entity.find("\r\n\r\n") : entity.find("\n\n");
+    if (split != std::string::npos && split > ctx.limits.max_header_bytes) {
+        ctx.output.warnings.push_back("MIMEパートのヘッダーサイズ上限に達しました");
+        return;
+    }
     std::string header_block, body;
     if (split == std::string::npos) body = entity;
     else {
@@ -229,6 +233,10 @@ void parse_entity(const std::string& entity, std::size_t depth, MimeContext& ctx
             auto part = body.substr(pos, next - pos);
             while (!part.empty() && (part.back() == '\r' || part.back() == '\n')) part.pop_back();
             parse_entity(part, depth + 1, ctx);
+            if (ctx.output.mime_parts >= ctx.limits.max_mime_parts) {
+                ctx.output.warnings.push_back("MIMEパート数上限に達したため残りを省略しました");
+                break;
+            }
             pos = next;
         }
         return;
