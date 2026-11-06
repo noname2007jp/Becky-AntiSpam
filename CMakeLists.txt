@@ -60,6 +60,28 @@ else()
     target_compile_options(antispam_pipeline PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+if(WIN32)
+    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+        message(FATAL_ERROR "Becky! is 32-bit; BeckyAntiSpam plugin must be built with Win32/x86.")
+    endif()
+
+    add_library(becky_antispam_plugin SHARED
+        src/plugin/plugin.cpp
+        src/plugin/BeckyAntiSpam.def
+    )
+    target_include_directories(becky_antispam_plugin PRIVATE
+        src/engine src/parser src/storage src/pipeline
+    )
+    target_link_libraries(becky_antispam_plugin PRIVATE antispam_pipeline shell32)
+    set_target_properties(becky_antispam_plugin PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "BeckyAntiSpam"
+    )
+    if(MSVC)
+        target_compile_options(becky_antispam_plugin PRIVATE /W4 /permissive- /utf-8)
+    endif()
+endif()
+
 add_executable(antispam_tests tests/engine_tests.cpp)
 target_link_libraries(antispam_tests PRIVATE antispam_engine antispam_storage antispam_pipeline)
 enable_testing()
