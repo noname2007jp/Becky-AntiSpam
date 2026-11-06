@@ -82,9 +82,9 @@ ctest --test-dir build -C Release --output-on-failure
 
 DLLは `build/Release/BeckyAntiSpam.dll` に生成されます。GitHub Actionsの [Windows x86 build](https://github.com/noname2007jp/Becky-AntiSpam/actions) からも `BeckyAntiSpam-Win32` アーティファクトを取得できます。
 
-設定画面はBecky!本体の `ツール → プラグインの設定 → Becky AntiSpam` から開く方式です。プラグインDLL内に設定ダイアログを組み込み、プラグインと同じ `<Becky!インストール先>\\Plugins\\BeckyAntiSpam\\settings.ini` を編集します。現時点で変更できるのは通常ログ／詳細テストログのON/OFFです。
+設定画面はBecky!本体の `ツール → プラグインの設定 → Becky AntiSpam` から開きます。設定画面には実際に使用しているデータ保存先が表示され、「フォルダーを開く」と「移行方法」を利用できます。変更できる設定は通常ログ／詳細テストログのON/OFFです。
 
-ログ設定は `<Becky!インストール先>\\Plugins\\BeckyAntiSpam\\settings.ini` で変更できます。
+ログ設定は、設定画面に表示されるデータ保存先の `settings.ini` で管理します。
 
 ```ini
 [logging]
@@ -98,7 +98,7 @@ enabled=0
 - `test_mode.enabled=1`: 詳細ログを `test-detail.log` に追加記録（初期値OFF、約20MiBでローテーション）
 - テストモードでは解析サイズ・MIME構成・判定値・ルール名／理由・解析警告・内部エラーを記録します。メール本文、件名、送信者、ヘッダー値そのものは記録しません。
 
-現段階のDLLは監査専用です。Becky!の `PlugIns` フォルダーへ配置してロード確認する前に、既存設定・メールデータのバックアップを推奨します。メールの移動・削除は行いません。監査ログと学習DBは `<Becky!インストール先>\\Plugins\\BeckyAntiSpam\\` に作成されます。
+現段階のDLLは監査専用です。Becky!の `PlugIns` フォルダーへ配置してロード確認する前に、既存設定・メールデータのバックアップを推奨します。メールの移動・削除は行いません。設定・学習DB・ログは設定画面に表示されるデータ保存先へ作成されます。
 
 
 ### 設定・学習データの保存場所
@@ -108,4 +108,8 @@ enabled=0
 
 ### 保存先と書き込み権限
 
-保存先はまず Becky! 実行ファイルのある場所の `Plugins\\BeckyAntiSpam\\` を使用します。Windowsの保護された場所（例: `C:\\Program Files\\`）で書き込み権限がない場合、管理者権限を要求せず、ユーザーの `%APPDATA%\\BeckyAntiSpam\\` に自動的に切り替えます。設定画面には実際に使用している保存先が表示されます。PC移行時は、その表示された保存先フォルダーをコピーしてください。
+保存先はまず Becky! 実行ファイルのある場所の `Plugins\\BeckyAntiSpam\\` を使用します。Windowsの保護された場所（例: `C:\\Program Files\\`）で書き込み権限がない場合、管理者権限を要求せず、ユーザーの `%APPDATA%\\BeckyAntiSpam\\` に自動的に切り替えます。設定画面には実際に使用している保存先が表示されます。
+
+### PC移行方法
+
+設定画面の「移行方法」ボタンで手順を確認できます。移行元・移行先のBecky!を完全に終了し、移行元の `BeckyAntiSpam` フォルダー全体をコピーして、移行先PCの設定画面に表示されたデータ保存先へ上書きコピーします。SQLiteはWALモードを使用するため、コピー時にBecky!が起動していないことが重要です。移行先に既存データがある場合は、事前に別の場所へ退避してください。インポート／エクスポート機能は設けず、フォルダーコピーで移行します。
