@@ -103,7 +103,99 @@ bool initialize_plugin() {
     operational_log("INFO", "pipeline initialized");
     return true;
 }
+
 } // namespace
+
+namespace {
+bool wide_path_to_utf8(const std::filesystem::path& path, std::string& out) {
+    const auto value = path.wstring();
+    const int n = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (n <= 1) return false;
+    out.resize(static_cast<std::size_t>(n - 1));
+    return WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, out.data(), n, nullptr, nullptr) > 0;
+}
+}
+
+bool export_plugin_data(const wchar_t* folder, std::wstring& error) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_store || !g_store->is_open()) { error = L"学習DBが初期化されていません。"; return false; }
+    const std::filesystem::path dir(folder);
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (ec) { error = L"保存先フォルダーを作成できません。"; return false; }
+    std::string db;
+    if (!wide_path_to_utf8(dir / L"training.sqlite3", db)) { error = L"保存先パスを変換できません。"; return false; }
+    std::string db_error;
+    if (!g_store->backup_to(db, &db_error)) {
+        error = L"学習DBのエクスポートに失敗しました: " + std::wstring(db_error.begin(), db_error.end());
+        return false;
+    }
+    if (!CopyFileW((g_data_dir / L"settings.ini").c_str(), (dir / L"settings.ini").c_str(), FALSE)) {
+        error = L"設定ファイルをコピーできませんでした。";
+        return false;
+    }
+    return true;
+}
+
+bool import_plugin_data(const wchar_t* folder, std::wstring& error) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_store || !g_store->is_open()) { error = L"学習DBが初期化されていません。"; return false; }
+    const std::filesystem::path dir(folder);
+    const auto incoming_db = dir / L"training.sqlite3";
+    const auto incoming_ini = dir / L"settings.ini";
+    if (!std::filesystem::is_regular_file(incoming_db) || !std::filesystem::is_regular_file(incoming_ini)) {
+        error = L"選択フォルダーに training.sqlite3 または settings.ini がありません。";
+        return false;
+    }
+    const auto rollback_db = g_data_dir / L"training.import-rollback.sqlite3";
+    const auto rollback_ini = g_data_dir / L"settings.import-rollback.ini";
+    std::string rollback_utf8, incoming_utf8;
+    if (!wide_path_to_utf8(rollback_db, rollback_utf8) || !wide_path_to_utf8(incoming_db, incoming_utf8)) {
+        error = L"ファイルパスを変換できません。"; return false;
+    }
+    std::string db_error;
+    if (!g_store->backup_to(rollback_utf8, &db_error)) {
+        error = L"現在の学習DBを退避できません。"; return false;
+    }
+    if (!CopyFileW((g_data_dir / L"settings.ini").c_str(), rollback_ini.c_str(), FALSE)) {
+        DeleteFileW(rollback_db.c_str());
+        error = L"現在の設定を退避できません。"; return false;
+    }
+    if (!g_store->restore_from(incoming_utf8, &db_error)) {
+        DeleteFileW(rollback_db.c_str()); DeleteFileW(rollback_ini.c_str());
+        error = L"学習DBをインポートできません: " + std::wstring(db_error.begin(), db_error.end());
+        return false;
+    }
+    if (!CopyFileW(incoming_ini.c_str(), (g_data_dir / L"settings.ini").c_str(), FALSE)) {
+        g_store->restore_from(rollback_utf8, nullptr);
+        CopyFileW(rollback_ini.c_str(), (g_data_dir / L"settings.ini").c_str(), FALSE);
+        DeleteFileW(rollback_db.c_str()); DeleteFileW(rollback_ini.c_str());
+        error = L"設定ファイルを反映できなかったため、元のデータに戻しました。";
+        return false;
+    }
+    g_log_settings.enabled = GetPrivateProfileIntW(L"logging", L"enabled", 1,
+        (g_data_dir / L"settings.ini").c_str()) != 0;
+    g_log_settings.test_mode = GetPrivateProfileIntW(L"test_mode", L"enabled", 0,
+        (g_data_dir / L"settings.ini").c_str()) != 0;
+    g_pipeline.reset();
+    g_pipeline = std::make_unique<beckyas::MailPipeline>(*g_store);
+    if (!g_pipeline->initialize(&db_error)) {
+        g_pipeline.reset();
+        g_store->restore_from(rollback_utf8, nullptr);
+        CopyFileW(rollback_ini.c_str(), (g_data_dir / L"settings.ini").c_str(), FALSE);
+        g_log_settings.enabled = GetPrivateProfileIntW(L"logging", L"enabled", 1,
+            (g_data_dir / L"settings.ini").c_str()) != 0;
+        g_log_settings.test_mode = GetPrivateProfileIntW(L"test_mode", L"enabled", 0,
+            (g_data_dir / L"settings.ini").c_str()) != 0;
+        g_pipeline = std::make_unique<beckyas::MailPipeline>(*g_store);
+        g_pipeline->initialize(nullptr);
+        DeleteFileW(rollback_db.c_str()); DeleteFileW(rollback_ini.c_str());
+        error = L"インポート後の初期化に失敗したため、元のデータに戻しました。";
+        return false;
+    }
+    DeleteFileW(rollback_db.c_str()); DeleteFileW(rollback_ini.c_str());
+    return true;
+}
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) DisableThreadLibraryCalls(instance);
