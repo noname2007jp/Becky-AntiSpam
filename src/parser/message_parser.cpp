@@ -5,6 +5,13 @@
 #include <string_view>
 #include <utility>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace beckyas {
 namespace {
 
@@ -76,6 +83,34 @@ std::string decode_q(std::string_view input) {
     }
     return out;
 }
+std::string charset_to_utf8(const std::string& bytes, const std::string& charset) {
+#ifdef _WIN32
+    const auto name = lower_ascii(trim(charset));
+    UINT codepage = CP_UTF8;
+    if (name == "utf-8" || name == "utf8") codepage = CP_UTF8;
+    else if (name == "iso-2022-jp" || name == "iso2022jp") codepage = 50220;
+    else if (name == "shift_jis" || name == "shift-jis" || name == "sjis" || name == "windows-31j") codepage = 932;
+    else if (name == "euc-jp" || name == "euc_jp") codepage = 51932;
+    else if (name == "us-ascii" || name == "ascii") codepage = 20127;
+    else if (name == "iso-8859-1") codepage = 28591;
+    else if (name == "windows-1252") codepage = 1252;
+    else return bytes;
+    if (bytes.empty() || bytes.size() > static_cast<std::size_t>(INT_MAX)) return bytes;
+    const int input_length = static_cast<int>(bytes.size());
+    const int wide_length = MultiByteToWideChar(codepage, 0, bytes.data(), input_length, nullptr, 0);
+    if (wide_length <= 0) return bytes;
+    std::wstring wide(static_cast<std::size_t>(wide_length), L'\\0');
+    if (MultiByteToWideChar(codepage, 0, bytes.data(), input_length, wide.data(), wide_length) <= 0) return bytes;
+    const int utf8_length = WideCharToMultiByte(CP_UTF8, 0, wide.data(), wide_length, nullptr, 0, nullptr, nullptr);
+    if (utf8_length <= 0) return bytes;
+    std::string utf8(static_cast<std::size_t>(utf8_length), '\\0');
+    if (WideCharToMultiByte(CP_UTF8, 0, wide.data(), wide_length, utf8.data(), utf8_length, nullptr, nullptr) <= 0) return bytes;
+    return utf8;
+#else
+    (void)charset;
+    return bytes;
+#endif
+}
 std::string decode_words(const std::string& input) {
     std::string out;
     std::size_t pos = 0;
@@ -91,8 +126,13 @@ std::string decode_words(const std::string& input) {
         }
         const auto encoding = lower_ascii(input.substr(q1 + 1, q2 - q1 - 1));
         const auto payload = std::string_view(input).substr(q2 + 1, end - q2 - 1);
-        if (encoding == "b") out += decode_base64(payload);
-        else if (encoding == "q") out += decode_q(payload);
+        std::string decoded;
+        if (encoding == "b") decoded = decode_base64(payload);
+        else if (encoding == "q") decoded = decode_q(payload);
+        else decoded.assign(input.substr(begin, end + 2 - begin));
+        const auto charset = input.substr(begin + 2, q1 - begin - 2);
+        if (encoding == "b" || encoding == "q") out += charset_to_utf8(decoded, charset);
+        else out += decoded;
         else out.append(input.substr(begin, end + 2 - begin));
         pos = end + 2;
         // RFC 2047 adjacent encoded-words are separated by ignorable linear whitespace.
@@ -249,6 +289,8 @@ void parse_entity(const std::string& entity, std::size_t depth, MimeContext& ctx
         return;
     }
     auto decoded = decode_transfer(body, transfer);
+    const auto charset = param(content_type, "charset");
+    if (!charset.empty()) decoded = charset_to_utf8(decoded, charset);
     if (media_type == "text/html") append_bounded(ctx.html, strip_html(decoded), ctx.limits.max_decoded_text_bytes, ctx.output.body_truncated);
     else if (media_type == "text/plain" || media_type.empty()) append_bounded(ctx.plain, decoded, ctx.limits.max_decoded_text_bytes, ctx.output.body_truncated);
 }
