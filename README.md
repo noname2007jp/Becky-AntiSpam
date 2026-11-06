@@ -40,6 +40,7 @@ Becky!本体は32bitアプリケーションのみ提供されているため、
 
 ## 仕様・ロードマップ
 
+- [製品仕様書](docs/SPECIFICATION.md)
 - [統合機能仕様](docs/FEATURE-SPEC.md)
 - [開発ロードマップ](docs/ROADMAP.md)
 - [学習データストア設計](docs/DATA-STORE.md)
