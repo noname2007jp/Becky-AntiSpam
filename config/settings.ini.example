@@ -1,0 +1,9 @@
+; Becky AntiSpam logging configuration
+; Files are stored under %APPDATA%\BeckyAntiSpam\
+[logging]
+; 1=enable operational log, 0=disable all file logging
+enabled=1
+
+[test_mode]
+; 1=enable verbose diagnostic log, 0=disable (recommended for normal use)
+enabled=0
