@@ -130,13 +130,16 @@ bool SqliteStore::open(std::string* error) {
         return false;
     }
 
-    Statement version(db_, "PRAGMA user_version");
-    if (!version.ok() || sqlite3_step(version.get()) != SQLITE_ROW) {
-        set_error(db_, error, "スキーマバージョンを確認できません");
-        close();
-        return false;
+    int schema_version = 0;
+    {
+        Statement version(db_, "PRAGMA user_version");
+        if (!version.ok() || sqlite3_step(version.get()) != SQLITE_ROW) {
+            set_error(db_, error, "スキーマバージョンを確認できません");
+            close();
+            return false;
+        }
+        schema_version = sqlite3_column_int(version.get(), 0);
     }
-    const int schema_version = sqlite3_column_int(version.get(), 0);
     if (schema_version > 1) {
         if (error) *error = "未対応のデータベーススキーマです";
         close();
