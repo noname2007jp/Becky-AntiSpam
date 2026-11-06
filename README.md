@@ -82,9 +82,9 @@ ctest --test-dir build -C Release --output-on-failure
 
 DLLは `build/Release/BeckyAntiSpam.dll` に生成されます。GitHub Actionsの [Windows x86 build](https://github.com/noname2007jp/Becky-AntiSpam/actions) からも `BeckyAntiSpam-Win32` アーティファクトを取得できます。
 
-設定画面はBecky!本体の `ツール → プラグインの設定 → Becky AntiSpam` から開く方式です。プラグインDLL内に設定ダイアログを組み込み、プラグインと同じ `%APPDATA%\\BeckyAntiSpam\\settings.ini` を編集します。現時点で変更できるのは通常ログ／詳細テストログのON/OFFです。
+設定画面はBecky!本体の `ツール → プラグインの設定 → Becky AntiSpam` から開く方式です。プラグインDLL内に設定ダイアログを組み込み、プラグインと同じ `<Becky!インストール先>\\Plugins\\BeckyAntiSpam\\settings.ini` を編集します。現時点で変更できるのは通常ログ／詳細テストログのON/OFFです。
 
-ログ設定は `%APPDATA%\\BeckyAntiSpam\\settings.ini` で変更できます。
+ログ設定は `<Becky!インストール先>\\Plugins\\BeckyAntiSpam\\settings.ini` で変更できます。
 
 ```ini
 [logging]
@@ -98,4 +98,9 @@ enabled=0
 - `test_mode.enabled=1`: 詳細ログを `test-detail.log` に追加記録（初期値OFF、約20MiBでローテーション）
 - テストモードでは解析サイズ・MIME構成・判定値・ルール名／理由・解析警告・内部エラーを記録します。メール本文、件名、送信者、ヘッダー値そのものは記録しません。
 
-現段階のDLLは監査専用です。Becky!の `PlugIns` フォルダーへ配置してロード確認する前に、既存設定・メールデータのバックアップを推奨します。メールの移動・削除は行いません。監査ログと学習DBは `%APPDATA%\\BeckyAntiSpam\\` に作成されます。
+現段階のDLLは監査専用です。Becky!の `PlugIns` フォルダーへ配置してロード確認する前に、既存設定・メールデータのバックアップを推奨します。メールの移動・削除は行いません。監査ログと学習DBは `<Becky!インストール先>\\Plugins\\BeckyAntiSpam\\` に作成されます。
+
+
+### 設定・学習データの保存場所
+
+設定・学習DB・ログは Becky! 本体の実行ファイルがあるフォルダーを基準に、`Plugins\\BeckyAntiSpam\\` へ保存します。PC移行時はこのフォルダーを新PCの同じ場所へコピーしてください。初回起動時に旧保存先 `%APPDATA%\\BeckyAntiSpam\\` が存在し、新保存先に同名ファイルがない場合は自動コピーします。旧データは削除しません。保存先に書き込み権限が必要です（Program Files配下など権限制限のある場所では注意してください）。
