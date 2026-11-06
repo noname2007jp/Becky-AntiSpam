@@ -349,6 +349,9 @@ bool SqliteStore::compact(std::size_t max_vocabulary,
         if (sqlite3_step(receipts.get()) != SQLITE_DONE) { set_error(db_, error, "古い履歴を整理できません"); rollback(db_); return false; }
     }
     if (!exec(db_, "COMMIT", error)) { rollback(db_); return false; }
+    // WAL checkpoint plus VACUUM physically releases free pages after logical pruning.
+    if (!exec(db_, "PRAGMA wal_checkpoint(TRUNCATE)", error)) return false;
+    if (!exec(db_, "VACUUM", error)) return false;
     return true;
 }
 
@@ -368,6 +371,13 @@ bool SqliteStore::backup_to(const std::string& destination_path, std::string* er
     if (!db_) { if (error) *error = "データベースが開かれていません"; return false; }
     if (destination_path.empty() || destination_path == database_path_) {
         if (error) *error = "バックアップ先には別のファイルを指定してください";
+        return false;
+    }
+    try {
+        const auto parent = std::filesystem::u8path(destination_path).parent_path();
+        if (!parent.empty()) std::filesystem::create_directories(parent);
+    } catch (const std::exception& ex) {
+        if (error) *error = ex.what();
         return false;
     }
     sqlite3* destination = nullptr;
