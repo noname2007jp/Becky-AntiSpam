@@ -65,6 +65,7 @@ int main() {
     assert(store.open(&error));
     const std::string spam_hash(64, 'a');
     const std::string ham_hash(64, 'b');
+    assert(store.train_once("invalid-hash", "ignored", true, &error) == TrainStatus::Error);
     assert(store.train_once(spam_hash, "free prize winner offer", true, &error) == TrainStatus::Trained);
     assert(store.train_once(spam_hash, "free prize winner offer", true, &error) == TrainStatus::Duplicate);
     assert(store.train_once(ham_hash, "meeting agenda project", false, &error) == TrainStatus::Trained);
@@ -101,6 +102,7 @@ int main() {
     std::filesystem::remove(db_path + "-wal");
     std::filesystem::remove(db_path + "-shm");
     std::filesystem::remove(backup_path);
+    std::filesystem::remove(db_path + ".precompact.bak");
     std::cout << "All Becky AntiSpam engine and storage tests passed.\n";
     return 0;
 }
