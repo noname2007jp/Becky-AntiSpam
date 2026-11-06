@@ -10,8 +10,8 @@ namespace {
 
 struct Rune {
     std::uint32_t value = 0;
-    std::size_t begin = 0;
-    std::size_t end = 0;
+    std::uint32_t begin = 0;
+    std::uint32_t end = 0;
 };
 
 bool decode_one(const std::string& s, std::size_t& pos, Rune& out) {
@@ -35,7 +35,7 @@ bool decode_one(const std::string& s, std::size_t& pos, Rune& out) {
     if ((extra == 1 && cp < 0x80) || (extra == 2 && cp < 0x800) ||
         (extra == 3 && cp < 0x10000) || cp > 0x10ffff ||
         (cp >= 0xd800 && cp <= 0xdfff)) return false;
-    out = {cp, start, pos};
+    out = {cp, static_cast<std::uint32_t>(start), static_cast<std::uint32_t>(pos)};
     return true;
 }
 
