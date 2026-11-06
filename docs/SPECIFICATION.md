@@ -108,7 +108,7 @@ Authentication-Resultsはメール内に偽装される可能性があるため�
 
 既定の保存先は次のとおり。
 
-`%APPDATA%\\BeckyAntiSpam\\`
+`<Becky!インストール先>\\Plugins\\BeckyAntiSpam\\`
 
 主なファイル:
 - `training.sqlite3`: 学習統計・重複学習防止情報
@@ -147,7 +147,7 @@ Authentication-Resultsはメール内に偽装される可能性があるため�
 
 ### 8.1 設定
 
-設定ファイル: `%APPDATA%\\BeckyAntiSpam\\settings.ini`
+設定ファイル: `<Becky!インストール先>\\Plugins\\BeckyAntiSpam\\settings.ini`
 
 ```ini
 [logging]
@@ -309,3 +309,8 @@ enabled=0
 ## 15. 変更管理
 
 本書は開発中の基準仕様である。実装が仕様と異なる場合は、まず差異を記録し、実装・仕様のどちらを変更するか決定する。未実装機能を実装済みとして扱わない。実機未確認項目は必ず未確認と明記する。
+
+
+### ポータブル保存先・PC移行
+
+保存先は Becky! 実行ファイルのあるフォルダーを基準とした `Plugins\\BeckyAntiSpam\\`。設定、SQLite学習DB、ログを同一フォルダーに集約する。PC移行はこのフォルダーのコピーで完了する設計とする。旧版の `%APPDATA%\\BeckyAntiSpam\\` がある場合、新保存先に同名ファイルがないものだけ初回起動時にコピーし、旧データは削除しない。書き込み権限がないインストール先では初期化を中止してエラーを記録・表示する。
