@@ -27,8 +27,8 @@ void add(Result& r, const char* id, int score, const char* reason) {
 } // namespace
 
 std::string classifier_text(const Message& message) {
-    // Classification and caller-side training must use identical input fields.
-    return message.from + "\n" + message.subject + "\n" + message.headers + "\n" + message.body;
+    // Avoid tokenizing sender addresses; use the same subject/header/body text for training and scoring.
+    return message.subject + "\n" + message.headers + "\n" + message.body;
 }
 
 BayesianModel::BayesianModel(std::size_t max_vocabulary)
