@@ -28,6 +28,8 @@ int main() {
     assert(has_token("当選"));
     assert(has_token("phishing123"));
     assert(!has_token("20261106")); // pure numeric IDs are ignored
+    const std::string oversized_token_input(1024 * 1024 + 128, 'a');
+    assert(tokenize(oversized_token_input).size() <= 1); // input scan is capped at 1 MiB
 
     // Header unfolding, RFC 2047 Q decoding, MIME multipart and transfer decoding.
     const std::string raw_mail =
