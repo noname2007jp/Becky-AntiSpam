@@ -107,6 +107,17 @@ bool initialize_plugin() {
 } // namespace
 
 namespace {
+std::wstring utf8_to_wide(const std::string& value) {
+    if (value.empty()) return {};
+    const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+        static_cast<int>(value.size()), nullptr, 0);
+    if (n <= 0) return L"詳細エラーはログを確認してください。";
+    std::wstring out(static_cast<std::size_t>(n), L'\\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+        static_cast<int>(value.size()), out.data(), n) <= 0)
+        return L"詳細エラーはログを確認してください。";
+    return out;
+}
 bool wide_path_to_utf8(const std::filesystem::path& path, std::string& out) {
     const auto value = path.wstring();
     const int n = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, nullptr, 0, nullptr, nullptr);
@@ -133,7 +144,7 @@ bool export_plugin_data(const wchar_t* folder, std::wstring& error) {
     if (!wide_path_to_utf8(dir / L"training.sqlite3", db)) { error = L"保存先パスを変換できません。"; return false; }
     std::string db_error;
     if (!g_store->backup_to(db, &db_error)) {
-        error = L"学習DBのエクスポートに失敗しました: " + std::wstring(db_error.begin(), db_error.end());
+        error = L"学習DBのエクスポートに失敗しました: " + utf8_to_wide(db_error);
         return false;
     }
     const auto settings_path = g_data_dir / L"settings.ini";
@@ -178,7 +189,7 @@ bool import_plugin_data(const wchar_t* folder, std::wstring& error) {
         g_pipeline = std::make_unique<beckyas::MailPipeline>(*g_store);
         g_pipeline->initialize(nullptr);
         DeleteFileW(rollback_db.c_str()); DeleteFileW(rollback_ini.c_str());
-        error = L"学習DBをインポートできません: " + std::wstring(db_error.begin(), db_error.end());
+        error = L"学習DBをインポートできません: " + utf8_to_wide(db_error);
         return false;
     }
     if (!CopyFileW(incoming_ini.c_str(), (g_data_dir / L"settings.ini").c_str(), FALSE)) {
