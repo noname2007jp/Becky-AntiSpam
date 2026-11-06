@@ -398,15 +398,23 @@ bool SqliteStore::get_stats(StoreStats& stats, std::string* error) const {
     }
     stats.vocabulary_size = static_cast<std::size_t>(sqlite3_column_int64(counts.get(), 0));
     stats.training_receipts = static_cast<std::size_t>(sqlite3_column_int64(counts.get(), 1));
-    Statement pages(db_, "PRAGMA page_count");
-    Statement page_size(db_, "PRAGMA page_size");
-    if (!pages.ok() || !page_size.ok() ||
-        sqlite3_step(pages.get()) != SQLITE_ROW || sqlite3_step(page_size.get()) != SQLITE_ROW) {
-        set_error(db_, error, "DBサイズを取得できません");
+    // Include WAL/SHM sidecars: page_count alone omits live WAL growth.
+    std::error_code size_error;
+    const auto db_file = std::filesystem::u8path(database_path_);
+    const auto add_file_size = [&stats, &size_error](const std::filesystem::path& path) {
+        size_error.clear();
+        if (std::filesystem::exists(path, size_error) && !size_error) {
+            const auto bytes = std::filesystem::file_size(path, size_error);
+            if (!size_error) stats.database_bytes += static_cast<std::uint64_t>(bytes);
+        }
+    };
+    add_file_size(db_file);
+    add_file_size(std::filesystem::u8path(database_path_ + "-wal"));
+    add_file_size(std::filesystem::u8path(database_path_ + "-shm"));
+    if (size_error) {
+        if (error) *error = size_error.message();
         return false;
     }
-    stats.database_bytes = static_cast<std::uint64_t>(sqlite3_column_int64(pages.get(), 0)) *
-                           static_cast<std::uint64_t>(sqlite3_column_int64(page_size.get(), 0));
     return true;
 }
 
