@@ -73,7 +73,7 @@ if(WIN32)
     target_include_directories(becky_antispam_plugin PRIVATE
         src/engine src/parser src/storage src/pipeline
     )
-    target_link_libraries(becky_antispam_plugin PRIVATE antispam_pipeline shell32)
+    target_link_libraries(becky_antispam_plugin PRIVATE antispam_pipeline shell32 ole32)
     set_target_properties(becky_antispam_plugin PROPERTIES
         PREFIX ""
         OUTPUT_NAME "BeckyAntiSpam"
