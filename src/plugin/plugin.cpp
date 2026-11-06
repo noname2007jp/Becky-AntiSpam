@@ -172,7 +172,11 @@ bool import_plugin_data(const wchar_t* folder, std::wstring& error) {
         DeleteFileW(rollback_db.c_str());
         error = L"現在の設定を退避できません。"; return false;
     }
+    // Drop the model before replacing the database so no cached training state survives.
+    g_pipeline.reset();
     if (!g_store->restore_from(incoming_utf8, &db_error)) {
+        g_pipeline = std::make_unique<beckyas::MailPipeline>(*g_store);
+        g_pipeline->initialize(nullptr);
         DeleteFileW(rollback_db.c_str()); DeleteFileW(rollback_ini.c_str());
         error = L"学習DBをインポートできません: " + std::wstring(db_error.begin(), db_error.end());
         return false;
@@ -188,7 +192,6 @@ bool import_plugin_data(const wchar_t* folder, std::wstring& error) {
         (g_data_dir / L"settings.ini").c_str()) != 0;
     g_log_settings.test_mode = GetPrivateProfileIntW(L"test_mode", L"enabled", 0,
         (g_data_dir / L"settings.ini").c_str()) != 0;
-    g_pipeline.reset();
     g_pipeline = std::make_unique<beckyas::MailPipeline>(*g_store);
     if (!g_pipeline->initialize(&db_error)) {
         g_pipeline.reset();
