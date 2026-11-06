@@ -40,6 +40,18 @@ std::vector<std::string> tokenize(const std::string& text) {
 BayesianModel::BayesianModel(std::size_t max_vocabulary)
     : max_vocabulary_(std::max<std::size_t>(1, max_vocabulary)) {}
 
+void BayesianModel::restore(std::size_t spam_samples, std::size_t ham_samples,
+                            const std::vector<TokenCount>& token_counts) {
+    words_.clear();
+    spam_samples_ = spam_samples;
+    ham_samples_ = ham_samples;
+    for (const auto& item : token_counts) {
+        if (item.token.empty() || (item.spam_docs == 0 && item.ham_docs == 0)) continue;
+        words_[item.token] = Counts{item.spam_docs, item.ham_docs};
+    }
+    if (words_.size() > max_vocabulary_) compact(max_vocabulary_);
+}
+
 void BayesianModel::train(const std::string& text, bool spam) {
     if (spam) ++spam_samples_; else ++ham_samples_;
     std::unordered_set<std::string> unique;
