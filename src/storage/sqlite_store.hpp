@@ -22,7 +22,7 @@ struct StoreStats {
 
 class SqliteStore {
 public:
-    explicit SqliteStore(std::string database_path);
+    explicit SqliteStore(std::string database_path, std::size_t max_vocabulary = 50000);
     ~SqliteStore();
 
     SqliteStore(const SqliteStore&) = delete;
@@ -54,6 +54,7 @@ public:
 private:
     std::string database_path_;
     sqlite3* db_ = nullptr;
+    std::size_t max_vocabulary_ = 50000;
 };
 
 } // namespace beckyas
