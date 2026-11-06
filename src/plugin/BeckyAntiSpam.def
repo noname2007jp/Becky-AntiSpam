@@ -4,5 +4,6 @@ EXPORTS
     BKC_OnStart=_BKC_OnStart@0 @1
     BKC_OnExit=_BKC_OnExit@0 @2
     BKC_OnMenuInit=_BKC_OnMenuInit@12 @3
-    BKC_OnPlugInSetup=_BKC_OnPlugInSetup@4 @13\n    BKC_OnPlugInInfo=_BKC_OnPlugInInfo@4 @14
+    BKC_OnPlugInSetup=_BKC_OnPlugInSetup@4 @13
+    BKC_OnPlugInInfo=_BKC_OnPlugInInfo@4 @14
     BKC_OnBeforeFilter2=_BKC_OnBeforeFilter2@16 @16
