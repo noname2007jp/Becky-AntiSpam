@@ -67,6 +67,7 @@ if(WIN32)
 
     add_library(becky_antispam_plugin SHARED
         src/plugin/plugin.cpp
+        src/plugin/settings_dialog.cpp
         src/plugin/BeckyAntiSpam.def
     )
     target_include_directories(becky_antispam_plugin PRIVATE
