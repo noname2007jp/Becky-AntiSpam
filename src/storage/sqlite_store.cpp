@@ -141,7 +141,7 @@ bool SqliteStore::open(std::string* error) {
         }
         schema_version = sqlite3_column_int(version.get(), 0);
     }
-    if (schema_version > 1) {
+    if (schema_version > 2) {
         if (error) *error = "未対応のデータベーススキーマです";
         close();
         return false;
@@ -149,6 +149,18 @@ bool SqliteStore::open(std::string* error) {
     if (schema_version == 0 && !exec(db_, "PRAGMA user_version=1", error)) {
         close();
         return false;
+    }
+    if (schema_version < 2) {
+        if (!exec(db_,
+            "CREATE TABLE IF NOT EXISTS evaluation_labels ("
+            " message_hash TEXT PRIMARY KEY CHECK(length(message_hash)=64),"
+            " label INTEGER NOT NULL CHECK(label IN (0,1)),"
+            " labeled_utc INTEGER NOT NULL);"
+            "CREATE INDEX IF NOT EXISTS idx_evaluation_labels_labeled ON evaluation_labels(labeled_utc);"
+            "PRAGMA user_version=2;", error)) {
+            close();
+            return false;
+        }
     }
     return true;
 }
@@ -325,6 +337,35 @@ TrainStatus SqliteStore::train_once(const std::string& message_hash,
         return TrainStatus::Error;
     }
     return reclassify ? TrainStatus::Reclassified : TrainStatus::Trained;
+}
+
+bool SqliteStore::set_evaluation_label(const std::string& message_hash,
+                                         bool spam,
+                                         std::string* error) {
+    if (!db_) {
+        if (error) *error = "データベースが開かれていません";
+        return false;
+    }
+    if (!valid_hash(message_hash)) {
+        if (error) *error = "message_hashにはSHA-256の64桁16進数を指定してください";
+        return false;
+    }
+    Statement label(db_,
+        "INSERT INTO evaluation_labels(message_hash,label,labeled_utc) VALUES(?1,?2,?3) "
+        "ON CONFLICT(message_hash) DO UPDATE SET label=excluded.label,labeled_utc=excluded.labeled_utc");
+    if (!label.ok()) {
+        set_error(db_, error, "評価ラベルSQLを準備できません");
+        return false;
+    }
+    const auto hash = normalize_hash(message_hash);
+    sqlite3_bind_text(label.get(), 1, hash.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(label.get(), 2, spam ? 1 : 0);
+    sqlite3_bind_int64(label.get(), 3, now_utc());
+    if (sqlite3_step(label.get()) != SQLITE_DONE) {
+        set_error(db_, error, "評価ラベルを保存できません");
+        return false;
+    }
+    return true;
 }
 
 bool SqliteStore::load_model(BayesianModel& model, std::string* error) const {
