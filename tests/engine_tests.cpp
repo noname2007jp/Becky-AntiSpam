@@ -4,6 +4,7 @@
 #include "sha256.hpp"
 #include "tokenizer.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <filesystem>
 #include <iostream>
