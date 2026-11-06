@@ -2,11 +2,15 @@
 #include <windows.h>
 #include <shlobj.h>
 #include <shellapi.h>
+#include <objbase.h>
 
 #include <string>
 #include <filesystem>
 #include <cwchar>
 #include "data_paths.hpp"
+
+bool export_plugin_data(const wchar_t* folder, std::wstring& error);
+bool import_plugin_data(const wchar_t* folder, std::wstring& error);
 
 namespace {
 constexpr int kLogId = 7101;
@@ -14,6 +18,8 @@ constexpr int kTestId = 7102;
 constexpr int kSaveId = 7103;
 constexpr int kCloseId = 7104;
 constexpr int kFolderId = 7105;
+constexpr int kExportId = 7106;
+constexpr int kImportId = 7107;
 
 HWND g_window = nullptr;
 HWND g_log = nullptr;
@@ -22,7 +28,7 @@ std::wstring g_dir;
 std::wstring g_ini;
 
 void font(HWND h) {
-    SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
+    if (h) SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
 }
 HWND control(HWND parent, const wchar_t* cls, const wchar_t* text, DWORD style,
              int x, int y, int w, int h, int id = 0) {
@@ -43,7 +49,20 @@ bool paths() {
     g_ini = g_dir + L"\\settings.ini";
     return true;
 }
-
+bool choose_folder(HWND owner, std::wstring& folder, const wchar_t* title) {
+    BROWSEINFOW bi{};
+    bi.hwndOwner = owner;
+    bi.lpszTitle = title;
+    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+    LPITEMIDLIST item = SHBrowseForFolderW(&bi);
+    if (!item) return false;
+    wchar_t path[MAX_PATH]{};
+    const bool ok = SHGetPathFromIDListW(item, path) != FALSE;
+    CoTaskMemFree(item);
+    if (!ok) return false;
+    folder = path;
+    return true;
+}
 void toggle_test() {
     if (g_test) EnableWindow(g_test, SendMessageW(g_log, BM_GETCHECK, 0, 0) == BST_CHECKED);
 }
@@ -60,6 +79,31 @@ bool save() {
     return WritePrivateProfileStringW(L"logging", L"enabled", a, g_ini.c_str()) &&
            WritePrivateProfileStringW(L"test_mode", L"enabled", b, g_ini.c_str());
 }
+void do_export(HWND hwnd) {
+    std::wstring folder, error;
+    if (!choose_folder(hwnd, folder, L"エクスポート先のフォルダーを選択してください")) return;
+    if (!export_plugin_data(folder.c_str(), error)) {
+        MessageBoxW(hwnd, error.c_str(), L"Becky AntiSpam - エクスポート失敗", MB_OK | MB_ICONERROR);
+        return;
+    }
+    MessageBoxW(hwnd, L"設定と学習データをエクスポートしました。\nメール本文やログは含まれません。",
+                L"Becky AntiSpam", MB_OK | MB_ICONINFORMATION);
+}
+void do_import(HWND hwnd) {
+    if (MessageBoxW(hwnd,
+        L"選択したバックアップの設定と学習データで、現在のデータを置き換えます。\n"
+        L"処理前に現在のデータは一時退避されます。\n\n続行しますか？",
+        L"Becky AntiSpam - インポート確認", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) return;
+    std::wstring folder, error;
+    if (!choose_folder(hwnd, folder, L"インポート元のバックアップフォルダーを選択してください")) return;
+    if (!import_plugin_data(folder.c_str(), error)) {
+        MessageBoxW(hwnd, error.c_str(), L"Becky AntiSpam - インポート失敗", MB_OK | MB_ICONERROR);
+        return;
+    }
+    load();
+    MessageBoxW(hwnd, L"設定と学習データをインポートしました。",
+                L"Becky AntiSpam", MB_OK | MB_ICONINFORMATION);
+}
 LRESULT CALLBACK dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_CREATE:
@@ -75,11 +119,18 @@ LRESULT CALLBACK dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         control(hwnd, L"STATIC", g_dir.c_str(), 0, 30, 202, 420, 20);
         control(hwnd, L"BUTTON", L"フォルダーを開く", BS_PUSHBUTTON | WS_TABSTOP,
             30, 225, 140, 24, kFolderId);
+        control(hwnd, L"BUTTON", L"バックアップ／PC移行", BS_GROUPBOX, 16, 260, 452, 76);
+        control(hwnd, L"STATIC", L"設定と学習データを保存・復元します（ログ・メール本文は対象外）。",
+            0, 30, 280, 420, 20);
+        control(hwnd, L"BUTTON", L"エクスポート", BS_PUSHBUTTON | WS_TABSTOP,
+            30, 304, 130, 24, kExportId);
+        control(hwnd, L"BUTTON", L"インポート", BS_PUSHBUTTON | WS_TABSTOP,
+            172, 304, 130, 24, kImportId);
         control(hwnd, L"STATIC",
-            L"※ 現在変更できるのはログ設定です。メールの移動・削除は行いません。",
-            0, 18, 270, 450, 28);
-        control(hwnd, L"BUTTON", L"保存", BS_DEFPUSHBUTTON | WS_TABSTOP, 300, 315, 78, 28, kSaveId);
-        control(hwnd, L"BUTTON", L"閉じる", BS_PUSHBUTTON | WS_TABSTOP, 388, 315, 78, 28, kCloseId);
+            L"※ メールの移動・削除は行いません。",
+            0, 18, 345, 450, 24);
+        control(hwnd, L"BUTTON", L"保存", BS_DEFPUSHBUTTON | WS_TABSTOP, 300, 380, 78, 28, kSaveId);
+        control(hwnd, L"BUTTON", L"閉じる", BS_PUSHBUTTON | WS_TABSTOP, 388, 380, 78, 28, kCloseId);
         load();
         return 0;
     case WM_COMMAND:
@@ -87,6 +138,8 @@ LRESULT CALLBACK dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (LOWORD(wp) == kFolderId) {
             ShellExecuteW(hwnd, L"open", g_dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL); return 0;
         }
+        if (LOWORD(wp) == kExportId) { do_export(hwnd); return 0; }
+        if (LOWORD(wp) == kImportId) { do_import(hwnd); return 0; }
         if (LOWORD(wp) == kSaveId) {
             if (save()) MessageBoxW(hwnd, L"設定を保存しました。\nBecky! を再起動すると反映されます。",
                                     L"Becky AntiSpam", MB_OK | MB_ICONINFORMATION);
@@ -121,7 +174,7 @@ void CALLBACK show_settings(HWND owner, LPARAM) {
     }
     g_window = CreateWindowExW(WS_EX_DLGMODALFRAME, cls, L"Becky AntiSpam - 設定",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT,
-        500, 400, owner, nullptr, GetModuleHandleW(nullptr), nullptr);
+        500, 465, owner, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (g_window) { ShowWindow(g_window, SW_SHOWNORMAL); UpdateWindow(g_window); }
 }
 } // namespace
