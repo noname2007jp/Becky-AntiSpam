@@ -351,11 +351,13 @@ bool SqliteStore::load_model(BayesianModel& model, std::string* error) const {
     }
 
     std::vector<BayesianModel::TokenCount> counts;
-    Statement words(db_, "SELECT token,spam_docs,ham_docs FROM token_stats");
+    Statement words(db_, "SELECT token,spam_docs,ham_docs FROM token_stats "
+                          "ORDER BY (spam_docs+ham_docs) DESC, token ASC LIMIT ?1");
     if (!words.ok()) {
         set_error(db_, error, "単語統計SQLを準備できません");
         return false;
     }
+    sqlite3_bind_int64(words.get(), 1, static_cast<sqlite3_int64>(model.max_vocabulary()));
     while ((rc = sqlite3_step(words.get())) == SQLITE_ROW) {
         const auto* token = reinterpret_cast<const char*>(sqlite3_column_text(words.get(), 0));
         if (!token) continue;
