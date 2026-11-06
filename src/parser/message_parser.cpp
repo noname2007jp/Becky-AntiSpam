@@ -287,9 +287,9 @@ bool MessageParser::parse(const std::string& raw_message, ParsedMail& output, st
     if (lower_auth.find("dmarc=fail") != std::string::npos) output.message.dmarc_result = "fail";
     else if (lower_auth.find("dmarc=pass") != std::string::npos) output.message.dmarc_result = "pass";
 
-    const auto body = raw_message.substr(split + separator);
     MimeContext ctx{limits_, output};
-    parse_entity(body.empty() ? std::string{} : body, 0, ctx);
+    // Parse the complete entity so the root Content-Type and transfer-encoding apply.
+    parse_entity(raw_message, 0, ctx);
     output.message.body = ctx.plain.empty() ? ctx.html : ctx.plain;
     if (output.body_truncated) output.warnings.push_back("本文テキストを上限で切り詰めました");
     return true;
