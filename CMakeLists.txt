@@ -80,6 +80,17 @@ if(WIN32)
     if(MSVC)
         target_compile_options(becky_antispam_plugin PRIVATE /W4 /permissive- /utf-8)
     endif()
+
+    # Standalone configuration utility. It edits the same per-user settings.ini
+    # used by the plugin; changes are read by the plugin on its next startup.
+    add_executable(becky_antispam_config WIN32 src/config/settings_gui.cpp)
+    target_link_libraries(becky_antispam_config PRIVATE shell32)
+    set_target_properties(becky_antispam_config PROPERTIES
+        OUTPUT_NAME "BeckyAntiSpamConfig"
+    )
+    if(MSVC)
+        target_compile_options(becky_antispam_config PRIVATE /W4 /permissive- /utf-8)
+    endif()
 endif()
 
 add_executable(antispam_tests tests/engine_tests.cpp)
