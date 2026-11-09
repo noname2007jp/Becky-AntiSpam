@@ -242,11 +242,11 @@ int WINAPI BKC_OnRetrieve(LPCSTR message, LPCSTR mail_id) {
     }
     // Verify the field only in the RFC 5322 header block. A substring in
     // the message body must not be counted as a successful header insertion.
-    const char* header_end = std::strstr(message, "\\r\\n\\r\\n");
+    const char* header_end = std::strstr(message, "\r\n\r\n");
     const char* marker = "X-AntiSpam-Classification:";
     const char* found = std::strstr(message, marker);
     const bool observed = header_end && found && found < header_end &&
-        (found == message || (found >= message + 2 && found[-2] == '\\r' && found[-1] == '\\n'));
+        (found == message || (found >= message + 2 && found[-2] == '\r' && found[-1] == '\n'));
     operational_log(observed ? "INFO" : "WARN",
         std::string("retrieve callback classification header in header-block=") +
         (observed ? "yes" : "no"));
