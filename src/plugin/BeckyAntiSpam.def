@@ -7,3 +7,4 @@ EXPORTS
     BKC_OnPlugInSetup=_BKC_OnPlugInSetup@4 @13
     BKC_OnPlugInInfo=_BKC_OnPlugInInfo@4 @14
     BKC_OnBeforeFilter2=_BKC_OnBeforeFilter2@16 @16
+    BKC_OnRetrieve=_BKC_OnRetrieve@8 @17
