@@ -23,7 +23,7 @@ bool contains_any(const std::string& haystack, const std::vector<std::string>& n
     });
 }
 std::size_t count_url_markers(const std::string& text) {
-    static const std::regex url_pattern(R"((https?://|www\\.))", std::regex::icase);
+    static const std::regex url_pattern(R"((https?://|www\.))", std::regex::icase);
     return static_cast<std::size_t>(std::distance(
         std::sregex_iterator(text.begin(), text.end(), url_pattern),
         std::sregex_iterator()));
@@ -186,6 +186,34 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
     const bool action_lure = account_lure || payment_lure || delivery_lure;
     if (url_count > 0 && action_lure)
         add(r, "content.lure_with_url", 10, "誘導表現とURLが同時に存在");
+
+    // Catch common Japanese phishing wording variants without treating a
+    // generic "確認" or "ログイン" phrase as suspicious on its own.
+    const bool account_term = contains_any(text, {
+        "アカウント", "ログイン", "サインイン", "パスワード", "本人確認",
+        "account", "sign in", "password"
+    });
+    const bool account_action = contains_any(text, {
+        "確認", "更新", "停止", "制限", "解除", "再設定", "有効期限",
+        "verify", "update", "suspend", "reset"
+    });
+    const bool payment_term = contains_any(text, {
+        "支払い", "お支払い", "決済", "請求", "カード情報",
+        "payment", "billing", "card"
+    });
+    const bool payment_action = contains_any(text, {
+        "確認", "更新", "失敗", "未払い", "期限", "update", "failed", "overdue"
+    });
+    const bool generic_lure = (account_term && account_action) ||
+                              (payment_term && payment_action);
+    const bool call_to_action = contains_any(text, {
+        "こちらから", "下記リンク", "リンクより", "クリックしてください",
+        "ご確認ください", "アクセスしてください", "click here", "follow this link"
+    });
+    if (url_count > 0 && generic_lure && !action_lure)
+        add(r, "content.generic_lure_url", 22, "アカウント・支払い操作を促す表現とURL");
+    if (url_count > 0 && call_to_action && !action_lure)
+        add(r, "content.call_to_action_url", 8, "操作を促す文言とURL");
     if (settings_.enable_url_rules) {
         if (std::regex_search(text, std::regex(R"(https?://(?:\d{1,3}\.){3}\d{1,3})", std::regex::icase)))
             add(r, "url.ip_literal", 20, "IPアドレスを直接指定したURL");
