@@ -16,6 +16,7 @@
 #include <string>
 #include <algorithm>
 #include <cctype>
+#include <unordered_map>
 
 int show_plugin_setup(HWND);
 
@@ -40,7 +41,13 @@ std::unique_ptr<beckyas::MailPipeline> g_pipeline;
 std::filesystem::path g_data_dir, g_audit_log, g_debug_log;
 LogSettings g_log_settings;
 using BeckyAllocFn = LPVOID (WINAPI*)(DWORD);
+using BeckyGetSourceFn = LPSTR (WINAPI*)(LPCSTR);
+using BeckySetSourceFn = void (WINAPI*)(LPCSTR, LPCSTR);
 BeckyAllocFn g_becky_alloc = nullptr;
+BeckyGetSourceFn g_becky_get_source = nullptr;
+BeckySetSourceFn g_becky_set_source = nullptr;
+// mail ID -> classification header; applied after the receive batch is saved.
+std::unordered_map<std::string, std::string> g_pending_headers;
 constexpr int kActionAddHeader = 8;
 constexpr int kFilterPass = 1;
 constexpr char kClassificationHeader[] = "x-becky-antispam";
@@ -83,6 +90,12 @@ bool initialize_plugin() {
     const auto becky_module = GetModuleHandleW(nullptr);
     g_becky_alloc = becky_module
         ? reinterpret_cast<BeckyAllocFn>(GetProcAddress(becky_module, "BKA_Alloc"))
+        : nullptr;
+    g_becky_get_source = becky_module
+        ? reinterpret_cast<BeckyGetSourceFn>(GetProcAddress(becky_module, "BKA_GetSource"))
+        : nullptr;
+    g_becky_set_source = becky_module
+        ? reinterpret_cast<BeckySetSourceFn>(GetProcAddress(becky_module, "BKA_SetSource"))
         : nullptr;
     std::wstring path_error;
     if (!beckyas::plugin::prepare_data_directory(g_data_dir, &path_error)) {
@@ -229,15 +242,75 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
     }
 }
 
-int WINAPI BKC_OnRetrieve(LPCSTR message, LPCSTR) {
-    // ACTION_ADDHEADER is applied by Becky! during BKC_OnBeforeFilter2.
-    // Inspect only the presence of our marker; never log message content.
-    const bool header_observed = message &&
-        std::strstr(message, "X-Becky-AntiSpam: ") != nullptr;
-    operational_log("INFO", "retrieve callback entered (header handled by filter)");
-    operational_log(header_observed ? "INFO" : "WARN",
-        std::string("retrieve callback header observed=") +
-        (header_observed ? "yes" : "no"));
+int WINAPI BKC_OnRetrieve(LPCSTR message, LPCSTR mail_id) {
+    // Keep only the classification marker and mail ID. The full source is not
+    // retained; the saved source is updated after the receive batch completes.
+    if (!message || !mail_id || !*mail_id) return 0;
+    const char* marker = "X-Becky-AntiSpam: ";
+    const char* found = std::strstr(message, marker);
+    if (!found) {
+        operational_log("WARN", "retrieve callback classification header not present");
+        return 0;
+    }
+    const char* value = found + std::strlen(marker);
+    const char* end = std::strpbrk(value, "\r\n");
+    if (!end || end == value) return 0;
+    const std::string header = std::string(marker) + std::string(value, end);
+    try {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_pending_headers[mail_id] = header;
+    } catch (...) {
+        operational_log("ERROR", "failed to queue classification header for post-retrieve update");
+        return 0;
+    }
+    operational_log("INFO", "retrieve callback classification header queued");
+    return 0;
+}
+
+int WINAPI BKC_OnFinishRetrieve(int message_count) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_pending_headers.empty()) return 0;
+    if (!g_becky_get_source || !g_becky_set_source) {
+        operational_log("ERROR", "post-retrieve source update unavailable: Becky source API not found");
+        g_pending_headers.clear();
+        return 0;
+    }
+
+    std::size_t updated = 0;
+    std::size_t failed = 0;
+    for (const auto& item : g_pending_headers) {
+        const auto* mail_id = item.first.c_str();
+        const auto* current_ptr = g_becky_get_source(mail_id);
+        if (!current_ptr) {
+            ++failed;
+            continue;
+        }
+        std::string source(current_ptr);
+        if (source.find(item.second) != std::string::npos) {
+            ++updated; // Already persisted; no rewrite required.
+            continue;
+        }
+
+        // Insert the marker before the existing RFC 5322 header block.
+        const auto separator = source.find("\r\n\r\n");
+        if (separator == std::string::npos) {
+            ++failed;
+            continue;
+        }
+        source.insert(separator + 2, item.second + "\r\n");
+        g_becky_set_source(mail_id, source.c_str());
+
+        const auto* verify_ptr = g_becky_get_source(mail_id);
+        if (verify_ptr && std::string(verify_ptr).find(item.second) != std::string::npos)
+            ++updated;
+        else
+            ++failed;
+    }
+    operational_log(failed == 0 ? "INFO" : "WARN",
+        std::string("post-retrieve header update completed updated=") +
+        std::to_string(updated) + " failed=" + std::to_string(failed) +
+        " batch_messages=" + std::to_string(message_count));
+    g_pending_headers.clear();
     return 0;
 }
 }
