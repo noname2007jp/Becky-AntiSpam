@@ -46,26 +46,6 @@ constexpr int kActionAddHeader = 8;
 constexpr int kFilterPass = 1;
 constexpr char kClassificationHeader[] = "x-antispam-classification";
 
-std::size_t diagnostic_url_count(const std::string& text) {
-    std::size_t count = 0;
-    for (std::size_t i = 0; i < text.size();) {
-        const auto lower_at = [&text](std::size_t pos, const char* token) {
-            const std::size_t n = std::char_traits<char>::length(token);
-            if (pos + n > text.size()) return false;
-            for (std::size_t j = 0; j < n; ++j) {
-                const auto c = static_cast<unsigned char>(text[pos + j]);
-                if (static_cast<char>(std::tolower(c)) != token[j]) return false;
-            }
-            return true;
-        };
-        if (lower_at(i, "https://")) { ++count; i += 8; }
-        else if (lower_at(i, "http://")) { ++count; i += 7; }
-        else if (lower_at(i, "www.")) { ++count; i += 4; }
-        else ++i;
-    }
-    return count;
-}
-
 void log_line(const std::filesystem::path& path, const char* level,
               const std::string& message, std::uint64_t limit) noexcept {
     try {
@@ -172,7 +152,7 @@ int WINAPI BKC_OnPlugInSetup(HWND hwnd) {
     try {
         return show_plugin_setup(hwnd);
     } catch (...) {
-        OutputDebugStringA("BeckyAntiSpam: settings dialog exception.\n");
+        OutputDebugStringA("BeckyAntiSpam: settings dialog exception.\\n");
         return 0;
     }
 }
@@ -225,22 +205,6 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
         const auto& model = g_pipeline->model();
         const auto bayes_percent = static_cast<int>(
             result.bayes_probability * 100.0 + 0.5);
-        const auto parsed_url_count = diagnostic_url_count(
-            parsed.message.subject + "\n" + parsed.message.headers + "\n" + parsed.message.body);
-        test_log("INFO", std::string("parse-metadata source_bytes=") +
-            std::to_string(parsed.source_bytes) +
-            " header_count=" + std::to_string(parsed.headers.size()) +
-            " subject_bytes=" + std::to_string(parsed.message.subject.size()) +
-            " classifier_header_bytes=" + std::to_string(parsed.message.headers.size()) +
-            " body_bytes=" + std::to_string(parsed.message.body.size()) +
-            " url_count=" + std::to_string(parsed_url_count) +
-            " mime_parts=" + std::to_string(parsed.mime_parts) +
-            " attachments=" + std::to_string(parsed.attachments.size()) +
-            " warnings=" + std::to_string(parsed.warnings.size()) +
-            " body_truncated=" + std::string(parsed.body_truncated ? "yes" : "no"));
-        for (const auto& warning : parsed.warnings) {
-            test_log("WARN", std::string("parse-warning ") + warning);
-        }
         test_log("INFO", std::string("classification verdict=") + verdict_name +
             " score=" + std::to_string(result.score) +
             " bayes_probability=" + std::to_string(bayes_percent) + "%" +

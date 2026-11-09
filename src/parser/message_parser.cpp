@@ -340,20 +340,9 @@ bool MessageParser::parse(const std::string& raw_message, ParsedMail& output, st
     output.message.from = decode_words(header_value(output.headers, "from"));
     output.message.return_path = decode_words(header_value(output.headers, "return-path"));
     output.message.subject = decode_words(header_value(output.headers, "subject"));
-    // Only retain stable, non-identity metadata headers for local classification.
-    // Sender/recipient addresses, Received paths, Message-ID and authentication
-    // assertions are deliberately excluded from the Bayes corpus.
-    static const std::vector<std::string> classifier_header_names = {
-        "list-unsubscribe", "content-type", "content-transfer-encoding",
-        "x-mailer", "precedence", "importance", "priority", "x-priority"
-    };
     for (const auto& f : output.headers) {
         if (f.name == "authentication-results") {
             output.authentication_results.push_back(f.value);
-        }
-        if (std::find(classifier_header_names.begin(), classifier_header_names.end(),
-                      f.name) != classifier_header_names.end()) {
-            output.message.headers += f.name + ": " + decode_words(f.value) + "\n";
         }
     }
     // Authentication-Results is attacker-spoofable unless its authserv-id is
