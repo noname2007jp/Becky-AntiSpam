@@ -320,6 +320,30 @@ int WINAPI BKC_OnFinishRetrieve(int message_count) {
     return 0;
 }
 
+int WINAPI BKC_OnOpenMail(LPCSTR mail_id) {
+    if (!mail_id || !*mail_id) return 0;
+    try {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        const auto pending = g_pending_verification.find(mail_id);
+        if (pending == g_pending_verification.end()) return 0;
+        if (!g_becky_get_source) {
+            operational_log("ERROR", "open-mail header verification unavailable: BKA_GetSource missing");
+            return 0;
+        }
+
+        const auto* source_ptr = g_becky_get_source(mail_id);
+        const bool found = source_ptr &&
+            std::string(source_ptr).find(pending->second) != std::string::npos;
+        operational_log(found ? "INFO" : "WARN",
+            std::string("open-mail header verification mail_id_matched=yes header_observed=") +
+            (found ? "yes" : "no"));
+        if (found) g_pending_verification.erase(pending);
+    } catch (...) {
+        operational_log("ERROR", "unexpected exception during open-mail header verification");
+    }
+    return 0;
+}
+
 int WINAPI BKC_OnEveryMinute() {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_pending_verification.empty()) return 0;
