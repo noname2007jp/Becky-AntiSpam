@@ -40,9 +40,9 @@ std::unique_ptr<beckyas::MailPipeline> g_pipeline;
 std::filesystem::path g_data_dir, g_audit_log, g_debug_log;
 LogSettings g_log_settings;
 using BeckyAllocFn = LPVOID (WINAPI*)(DWORD);
+using BeckySetSourceFn = void (WINAPI*)(LPCTSTR, LPCTSTR);
 BeckyAllocFn g_becky_alloc = nullptr;
-constexpr int kActionAddHeader = 8;
-constexpr int kFilterPass = 1;
+BeckySetSourceFn g_becky_set_source = nullptr;
 constexpr char kClassificationHeader[] = "x-becky-antispam";
 
 void log_line(const std::filesystem::path& path, const char* level,
@@ -83,6 +83,9 @@ bool initialize_plugin() {
     const auto becky_module = GetModuleHandleW(nullptr);
     g_becky_alloc = becky_module
         ? reinterpret_cast<BeckyAllocFn>(GetProcAddress(becky_module, "BKA_Alloc"))
+        : nullptr;
+    g_becky_set_source = becky_module
+        ? reinterpret_cast<BeckySetSourceFn>(GetProcAddress(becky_module, "BKA_SetSource"))
         : nullptr;
     std::wstring path_error;
     if (!beckyas::plugin::prepare_data_directory(g_data_dir, &path_error)) {
@@ -159,36 +162,41 @@ int WINAPI BKC_OnPlugInInfo(PluginInfo* info) {
     std::strncpy(info->description, "Local spam classification (audit mode)", sizeof(info->description) - 1);
     return 0;
 }
-int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** parameter) {
+int WINAPI BKC_OnBeforeFilter2(LPCSTR, LPCSTR, int* action, char** parameter) {
     if (action) *action = -1;
     if (parameter) *parameter = nullptr;
-    if (!message) return 0;
-    bool header_action_set = false;
+    // Classification and source annotation are performed by BKC_OnRetrieve,
+    // where Becky! supplies the persistent mail ID.
+    return 0;
+}
+
+int WINAPI BKC_OnRetrieve(LPCTSTR message, LPCTSTR mail_id) {
+    if (!message || !mail_id || !*mail_id) return 0;
     try {
-        const auto length = strnlen_s(message, kMaxMessageBytes + 1);
-        if (length == 0 || length > kMaxMessageBytes) {
-            operational_log("WARN", "message skipped: empty or size limit exceeded");
-            test_log("WARN", "filter input rejected by size guard");
+        const std::string source(message);
+        if (source.empty() || source.size() > kMaxMessageBytes) {
+            operational_log("WARN", "retrieve annotation skipped: empty source or size limit exceeded");
             return 0;
         }
+
         std::lock_guard<std::mutex> lock(g_mutex);
         if (!g_pipeline && !initialize_plugin()) {
-            operational_log("ERROR", "pipeline unavailable; message passed to standard filter");
+            operational_log("ERROR", "retrieve annotation skipped: pipeline unavailable");
             return 0;
         }
-        test_log("TRACE", "filter callback entered; bytes=" + std::to_string(length));
+        if (!g_becky_set_source) {
+            operational_log("ERROR", "retrieve annotation unavailable: BKA_SetSource not found");
+            return 0;
+        }
+
         beckyas::ParsedMail parsed;
         beckyas::Result result;
         std::string error;
-        if (!g_pipeline->analyze(std::string(message, length), parsed, result, &error)) {
-            operational_log("ERROR", "analysis failed: " + error);
-            test_log("ERROR", "parser/pipeline error: " + error);
+        if (!g_pipeline->analyze(source, parsed, result, &error)) {
+            operational_log("ERROR", "retrieve analysis failed: " + error);
             return 0;
         }
-        const char* verdict = result.verdict == beckyas::Verdict::Spam ? "spam" :
-            result.verdict == beckyas::Verdict::Review ? "review" : "ham";
-        operational_log("INFO", std::string("classification verdict=") + verdict +
-            " score=" + std::to_string(result.score));
+
         const bool has_classification_header = std::any_of(
             parsed.headers.begin(), parsed.headers.end(),
             [](const beckyas::HeaderField& field) {
@@ -198,50 +206,36 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
                 return name == kClassificationHeader;
             });
         if (has_classification_header) {
-            operational_log("WARN", "classification header already exists; injection skipped");
-        } else if (!g_becky_alloc || !action || !parameter) {
-            operational_log("WARN", "classification header unavailable: Becky! allocator or callback output missing");
-        } else {
-            const char* label = result.verdict == beckyas::Verdict::Spam ? "Spam" :
-                result.verdict == beckyas::Verdict::Review ? "Review" : "Ham";
-            const std::string header = std::string("X-Becky-AntiSpam: ") + label;
-            auto* callback_memory = static_cast<char*>(
-                g_becky_alloc(static_cast<DWORD>(header.size() + 1)));
-            if (callback_memory) {
-                std::memcpy(callback_memory, header.c_str(), header.size() + 1);
-                *action = kActionAddHeader;
-                *parameter = callback_memory;
-                header_action_set = true;
-                operational_log("INFO", std::string("classification header queued: ") + label);
-            } else {
-                operational_log("WARN", "classification header allocation failed");
-            }
+            operational_log("INFO", "retrieve annotation skipped: classification header already exists");
+            return 0;
         }
-        if (g_log_settings.test_mode) {
-            test_log("TRACE", "parsed bytes=" + std::to_string(parsed.source_bytes) +
-                " mime_parts=" + std::to_string(parsed.mime_parts) +
-                " headers=" + std::to_string(parsed.headers.size()) +
-                " attachments=" + std::to_string(parsed.attachments.size()) +
-                " body_truncated=" + (parsed.body_truncated ? "true" : "false"));
-            test_log("TRACE", std::string("result verdict=") + verdict +
-                " score=" + std::to_string(result.score) +
-                " bayes_probability=" + std::to_string(result.bayes_probability) +
-                " findings=" + std::to_string(result.findings.size()) +
-                " spam_samples=" + std::to_string(g_pipeline->model().spam_samples()) +
-                " ham_samples=" + std::to_string(g_pipeline->model().ham_samples()) +
-                " vocabulary=" + std::to_string(g_pipeline->model().vocabulary_size()));
-            for (const auto& finding : result.findings)
-                test_log("RULE", "rule=" + finding.rule + " score=" +
-                    std::to_string(finding.score) + " reason=" + finding.reason);
-            for (const auto& warning : parsed.warnings)
-                test_log("WARN", "parser warning: " + warning);
+
+        const char* label = result.verdict == beckyas::Verdict::Spam ? "Spam" :
+            result.verdict == beckyas::Verdict::Review ? "Review" : "Ham";
+
+        // Insert only into the RFC 5322 header block. Preserve the original
+        // body and all non-classification source bytes unchanged.
+        const auto crlf_separator = source.find("\r\n\r\n");
+        const auto lf_separator = source.find("\n\n");
+        std::size_t insert_at = std::string::npos;
+        if (crlf_separator != std::string::npos) insert_at = crlf_separator + 2;
+        else if (lf_separator != std::string::npos) insert_at = lf_separator + 1;
+        if (insert_at == std::string::npos) {
+            operational_log("WARN", "retrieve annotation skipped: header/body separator not found");
+            return 0;
         }
+
+        std::string updated = source;
+        updated.insert(insert_at, std::string("X-Becky-AntiSpam: ") + label + "\r\n");
+        g_becky_set_source(mail_id, updated.c_str());
+
+        const char* verdict = result.verdict == beckyas::Verdict::Spam ? "spam" :
+            result.verdict == beckyas::Verdict::Review ? "review" : "ham";
+        operational_log("INFO", std::string("retrieve source update requested verdict=") +
+            verdict + " bytes=" + std::to_string(updated.size()));
     } catch (...) {
-        operational_log("ERROR", "unexpected exception in filter callback");
-        test_log("ERROR", "unexpected exception in filter callback");
+        operational_log("ERROR", "unexpected exception in retrieve annotation callback");
     }
-    // Add only the classification header, then continue normal Becky! filtering.
-    // No mail move/delete action is ever returned.
-    return header_action_set ? kFilterPass : 0;
+    return 0;
 }
 }
