@@ -277,12 +277,14 @@ int WINAPI BKC_OnFinishRetrieve(int message_count) {
     }
 
     std::size_t updated = 0;
-    std::size_t failed = 0;
+    std::size_t source_unavailable = 0;
+    std::size_t malformed_source = 0;
+    std::size_t verify_failed = 0;
     for (const auto& item : g_pending_headers) {
         const auto* mail_id = item.first.c_str();
         const auto* current_ptr = g_becky_get_source(mail_id);
         if (!current_ptr) {
-            ++failed;
+            ++source_unavailable;
             continue;
         }
         std::string source(current_ptr);
@@ -294,7 +296,7 @@ int WINAPI BKC_OnFinishRetrieve(int message_count) {
         // Insert the marker before the existing RFC 5322 header block.
         const auto separator = source.find("\r\n\r\n");
         if (separator == std::string::npos) {
-            ++failed;
+            ++malformed_source;
             continue;
         }
         source.insert(separator + 2, item.second + "\r\n");
@@ -304,11 +306,15 @@ int WINAPI BKC_OnFinishRetrieve(int message_count) {
         if (verify_ptr && std::string(verify_ptr).find(item.second) != std::string::npos)
             ++updated;
         else
-            ++failed;
+            ++verify_failed;
     }
+    const std::size_t failed = source_unavailable + malformed_source + verify_failed;
     operational_log(failed == 0 ? "INFO" : "WARN",
         std::string("post-retrieve header update completed updated=") +
-        std::to_string(updated) + " failed=" + std::to_string(failed) +
+        std::to_string(updated) +
+        " source_unavailable=" + std::to_string(source_unavailable) +
+        " malformed_source=" + std::to_string(malformed_source) +
+        " verify_failed=" + std::to_string(verify_failed) +
         " batch_messages=" + std::to_string(message_count));
     g_pending_headers.clear();
     return 0;
