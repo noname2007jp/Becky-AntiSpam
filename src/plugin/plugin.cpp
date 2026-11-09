@@ -163,6 +163,7 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
     if (action) *action = -1;
     if (parameter) *parameter = nullptr;
     if (!message) return 0;
+    bool header_action_set = false;
     try {
         const auto length = strnlen_s(message, kMaxMessageBytes + 1);
         if (length == 0 || length > kMaxMessageBytes) {
@@ -188,7 +189,6 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
             result.verdict == beckyas::Verdict::Review ? "review" : "ham";
         operational_log("INFO", std::string("classification verdict=") + verdict +
             " score=" + std::to_string(result.score));
-        bool header_action_set = false;
         const bool has_classification_header = std::any_of(
             parsed.headers.begin(), parsed.headers.end(),
             [](const beckyas::HeaderField& field) {
@@ -217,7 +217,7 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
                 operational_log("WARN", "classification header allocation failed");
             }
         }
-    if (g_log_settings.test_mode) {
+        if (g_log_settings.test_mode) {
             test_log("TRACE", "parsed bytes=" + std::to_string(parsed.source_bytes) +
                 " mime_parts=" + std::to_string(parsed.mime_parts) +
                 " headers=" + std::to_string(parsed.headers.size()) +
