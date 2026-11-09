@@ -31,4 +31,3 @@ jobs:
           name: BeckyAntiSpam-Win32
           path: build/Release/BeckyAntiSpam.dll
           if-no-files-found: error
-```
