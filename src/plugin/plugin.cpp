@@ -14,6 +14,8 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <algorithm>
+#include <cctype>
 
 int show_plugin_setup(HWND);
 
@@ -37,6 +39,11 @@ std::unique_ptr<beckyas::SqliteStore> g_store;
 std::unique_ptr<beckyas::MailPipeline> g_pipeline;
 std::filesystem::path g_data_dir, g_audit_log, g_debug_log;
 LogSettings g_log_settings;
+using BeckyAllocFn = LPVOID (WINAPI*)(DWORD);
+BeckyAllocFn g_becky_alloc = nullptr;
+constexpr int kActionAddHeader = 8;
+constexpr int kFilterPass = 1;
+constexpr char kClassificationHeader[] = "x-becky-antispam";
 
 void log_line(const std::filesystem::path& path, const char* level,
               const std::string& message, std::uint64_t limit) noexcept {
@@ -72,6 +79,11 @@ void test_log(const char* level, const std::string& message) noexcept {
 }
 
 bool initialize_plugin() {
+    // Becky! SDK: BKA_Alloc allocates callback-lifetime memory for filter parameters.
+    const auto becky_module = GetModuleHandleW(nullptr);
+    g_becky_alloc = becky_module
+        ? reinterpret_cast<BeckyAllocFn>(GetProcAddress(becky_module, "BKA_Alloc"))
+        : nullptr;
     std::wstring path_error;
     if (!beckyas::plugin::prepare_data_directory(g_data_dir, &path_error)) {
         OutputDebugStringW((L"BeckyAntiSpam: " + path_error + L"\n").c_str());
@@ -176,7 +188,36 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
             result.verdict == beckyas::Verdict::Review ? "review" : "ham";
         operational_log("INFO", std::string("classification verdict=") + verdict +
             " score=" + std::to_string(result.score));
-        if (g_log_settings.test_mode) {
+        bool header_action_set = false;
+        const bool has_classification_header = std::any_of(
+            parsed.headers.begin(), parsed.headers.end(),
+            [](const beckyas::HeaderField& field) {
+                std::string name = field.name;
+                std::transform(name.begin(), name.end(), name.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                return name == kClassificationHeader;
+            });
+        if (has_classification_header) {
+            operational_log("WARN", "classification header already exists; injection skipped");
+        } else if (!g_becky_alloc || !action || !parameter) {
+            operational_log("WARN", "classification header unavailable: Becky! allocator or callback output missing");
+        } else {
+            const char* label = result.verdict == beckyas::Verdict::Spam ? "Spam" :
+                result.verdict == beckyas::Verdict::Review ? "Review" : "Ham";
+            const std::string header = std::string("X-Becky-AntiSpam: ") + label;
+            auto* callback_memory = static_cast<char*>(
+                g_becky_alloc(static_cast<DWORD>(header.size() + 1)));
+            if (callback_memory) {
+                std::memcpy(callback_memory, header.c_str(), header.size() + 1);
+                *action = kActionAddHeader;
+                *parameter = callback_memory;
+                header_action_set = true;
+                operational_log("INFO", std::string("classification header queued: ") + label);
+            } else {
+                operational_log("WARN", "classification header allocation failed");
+            }
+        }
+    if (g_log_settings.test_mode) {
             test_log("TRACE", "parsed bytes=" + std::to_string(parsed.source_bytes) +
                 " mime_parts=" + std::to_string(parsed.mime_parts) +
                 " headers=" + std::to_string(parsed.headers.size()) +
@@ -199,7 +240,8 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
         operational_log("ERROR", "unexpected exception in filter callback");
         test_log("ERROR", "unexpected exception in filter callback");
     }
-    // Audit only. No mail move or delete; continue normal Becky! filtering.
-    return 0;
+    // Add only the classification header, then continue normal Becky! filtering.
+    // No mail move/delete action is ever returned.
+    return header_action_set ? kFilterPass : 0;
 }
 }
