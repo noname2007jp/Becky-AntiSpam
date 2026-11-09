@@ -244,128 +244,33 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
 }
 
 int WINAPI BKC_OnRetrieve(LPCSTR message, LPCSTR mail_id) {
-    // Keep only the classification marker and mail ID. The full source is not
-    // retained; the saved source is updated after the receive batch completes.
-    if (!message || !mail_id || !*mail_id) return 0;
-    const char* marker = "X-Becky-AntiSpam: ";
-    const char* found = std::strstr(message, marker);
-    if (!found) {
-        operational_log("WARN", "retrieve callback classification header not present");
+    // The SDK calls this after a message has been retrieved and saved.
+    // ACTION_ADDHEADER is the supported way to add incoming headers before
+    // Becky! applies its normal filtering and saves the message. Do not
+    // rewrite the stored source here: SetSource has no return value and the
+    // previous post-retrieve rewrite was not verifiably persistent.
+    if (!message || !mail_id || !*mail_id) {
+        operational_log("WARN", "retrieve callback missing message or mail ID");
         return 0;
     }
-    const char* value = found + std::strlen(marker);
-    const char* end = std::strpbrk(value, "\r\n");
-    if (!end || end == value) return 0;
-    const std::string header = std::string(marker) + std::string(value, end);
-    try {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        g_pending_headers[mail_id] = header;
-    } catch (...) {
-        operational_log("ERROR", "failed to queue classification header for post-retrieve update");
-        return 0;
-    }
-    operational_log("INFO", "retrieve callback classification header queued");
+    const char* marker = "X-Becky-AntiSpam:";
+    const bool observed = std::strstr(message, marker) != nullptr;
+    operational_log(observed ? "INFO" : "WARN",
+        std::string("retrieve callback saved-message header observed=") +
+        (observed ? "yes" : "no"));
     return 0;
 }
 
 int WINAPI BKC_OnFinishRetrieve(int message_count) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_pending_headers.empty()) return 0;
-    if (!g_becky_get_source || !g_becky_set_source) {
-        operational_log("ERROR", "post-retrieve source update unavailable: Becky source API not found");
-        g_pending_headers.clear();
-        return 0;
-    }
-
-    std::size_t updated = 0;
-    std::size_t source_unavailable = 0;
-    std::size_t malformed_source = 0;
-    for (const auto& item : g_pending_headers) {
-        const auto* mail_id = item.first.c_str();
-        const auto* current_ptr = g_becky_get_source(mail_id);
-        if (!current_ptr) {
-            ++source_unavailable;
-            continue;
-        }
-        std::string source(current_ptr);
-        if (source.find(item.second) != std::string::npos) {
-            ++updated; // Already persisted; no rewrite required.
-            continue;
-        }
-
-        // Insert the marker before the existing RFC 5322 header block.
-        const auto separator = source.find("\r\n\r\n");
-        if (separator == std::string::npos) {
-            ++malformed_source;
-            continue;
-        }
-        source.insert(separator + 2, item.second + "\r\n");
-        g_becky_set_source(mail_id, source.c_str());
-
-        // GetSource may expose a callback-scoped/cache-backed buffer. Do not
-        // treat an immediate read-after-write as authoritative; verify from a
-        // later Becky! callback after the receive operation has unwound.
-        g_pending_verification[item.first] = item.second;
-        ++updated; // SetSource was issued; persistence is verified asynchronously.
-    }
-    const std::size_t failed = source_unavailable + malformed_source;
-    operational_log(failed == 0 ? "INFO" : "WARN",
-        std::string("post-retrieve header set issued=") +
-        std::to_string(updated) +
-        " source_unavailable=" + std::to_string(source_unavailable) +
-        " malformed_source=" + std::to_string(malformed_source) +
-        " deferred_verification=" + std::to_string(g_pending_verification.size()) +
-        " batch_messages=" + std::to_string(message_count));
-    g_pending_headers.clear();
+    operational_log("INFO", std::string("retrieve session finished messages=") +
+        std::to_string(message_count));
     return 0;
 }
 
-int WINAPI BKC_OnOpenMail(LPCSTR mail_id) {
-    if (!mail_id || !*mail_id) return 0;
-    try {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        const auto pending = g_pending_verification.find(mail_id);
-        if (pending == g_pending_verification.end()) return 0;
-        if (!g_becky_get_source) {
-            operational_log("ERROR", "open-mail header verification unavailable: BKA_GetSource missing");
-            return 0;
-        }
-
-        const auto* source_ptr = g_becky_get_source(mail_id);
-        const bool found = source_ptr &&
-            std::string(source_ptr).find(pending->second) != std::string::npos;
-        operational_log(found ? "INFO" : "WARN",
-            std::string("open-mail header verification mail_id_matched=yes header_observed=") +
-            (found ? "yes" : "no"));
-        if (found) g_pending_verification.erase(pending);
-    } catch (...) {
-        operational_log("ERROR", "unexpected exception during open-mail header verification");
-    }
+int WINAPI BKC_OnOpenMail(LPCSTR) {
     return 0;
 }
 
 int WINAPI BKC_OnEveryMinute() {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_pending_verification.empty()) return 0;
-    if (!g_becky_get_source) {
-        operational_log("ERROR", "deferred header verification unavailable: BKA_GetSource missing");
-        g_pending_verification.clear();
-        return 0;
-    }
-
-    std::size_t verified = 0;
-    std::size_t missing = 0;
-    for (const auto& item : g_pending_verification) {
-        const auto* source_ptr = g_becky_get_source(item.first.c_str());
-        if (source_ptr && std::string(source_ptr).find(item.second) != std::string::npos)
-            ++verified;
-        else
-            ++missing;
-    }
-    operational_log(missing == 0 ? "INFO" : "WARN",
-        std::string("deferred header verification verified=") +
-        std::to_string(verified) + " missing=" + std::to_string(missing));
-    g_pending_verification.clear();
     return 0;
-}
-}
+}}
