@@ -280,7 +280,6 @@ int WINAPI BKC_OnFinishRetrieve(int message_count) {
     std::size_t updated = 0;
     std::size_t source_unavailable = 0;
     std::size_t malformed_source = 0;
-    std::size_t verify_failed = 0;
     for (const auto& item : g_pending_headers) {
         const auto* mail_id = item.first.c_str();
         const auto* current_ptr = g_becky_get_source(mail_id);
