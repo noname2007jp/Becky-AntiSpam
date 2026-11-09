@@ -171,7 +171,11 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR, LPCSTR, int* action, char** parameter) {
 }
 
 int WINAPI BKC_OnRetrieve(LPCTSTR message, LPCTSTR mail_id) {
-    if (!message || !mail_id || !*mail_id) return 0;
+    operational_log("INFO", "retrieve callback entered");
+    if (!message || !mail_id || !*mail_id) {
+        operational_log("WARN", "retrieve callback skipped: message or mail ID missing");
+        return 0;
+    }
     try {
         const std::string source(message);
         if (source.empty() || source.size() > kMaxMessageBytes) {
