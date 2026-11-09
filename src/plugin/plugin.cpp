@@ -75,8 +75,12 @@ void operational_log(const char* level, const std::string& message) noexcept {
         log_line(g_audit_log, level, message, kDefaultLogLimit);
 }
 void test_log(const char* level, const std::string& message) noexcept {
-    if (g_log_settings.enabled && g_log_settings.test_mode)
-        log_line(g_debug_log, level, message, kTestLogLimit);
+    if (!g_log_settings.enabled || !g_log_settings.test_mode) return;
+
+    // Keep the dedicated diagnostic file, but also mirror diagnostics to the
+    // operational log so they remain visible if test-detail.log cannot be opened.
+    log_line(g_debug_log, level, message, kTestLogLimit);
+    log_line(g_audit_log, level, std::string("[TEST] ") + message, kDefaultLogLimit);
 }
 
 bool initialize_plugin() {
