@@ -17,6 +17,17 @@ std::string lower(std::string value) {
 bool contains(const std::string& haystack, const std::string& needle) {
     return lower(haystack).find(needle) != std::string::npos;
 }
+bool contains_any(const std::string& haystack, const std::vector<std::string>& needles) {
+    return std::any_of(needles.begin(), needles.end(), [&](const std::string& needle) {
+        return contains(haystack, needle);
+    });
+}
+std::size_t count_url_markers(const std::string& text) {
+    static const std::regex url_pattern(R"((https?://|www\\.))", std::regex::icase);
+    return static_cast<std::size_t>(std::distance(
+        std::sregex_iterator(text.begin(), text.end(), url_pattern),
+        std::sregex_iterator()));
+}
 std::string combined_text(const Message& m) {
     return classifier_text(m);
 }
@@ -139,16 +150,54 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
             add(r, "header.return_path_mismatch", 10, "FromとReturn-Pathのドメインが不一致");
     }
 
-    if (contains(text, "パスワードを確認") || contains(text, "アカウントを停止") ||
-        contains(text, "至急ご確認") || contains(text, "今すぐログイン") ||
-        contains(text, "verify your account") || contains(text, "password expires"))
-        add(r, "content.credential_lure", 15, "認証情報を急がせる表現を検出");
+    const bool account_lure = contains_any(text, {
+        "アカウントを停止", "アカウントが停止", "アカウントの利用制限",
+        "本人確認が必要", "本人確認を行", "不正アクセスを検知",
+        "パスワードを確認", "パスワードを再設定", "今すぐログイン",
+        "verify your account", "password expires", "account has been suspended",
+        "unusual sign-in activity"
+    });
+    const bool payment_lure = contains_any(text, {
+        "未払い料金", "お支払い方法", "決済に失敗", "支払いを確認",
+        "請求内容を確認", "カード情報を更新", "payment failed",
+        "outstanding payment", "billing information"
+    });
+    const bool delivery_lure = contains_any(text, {
+        "再配達を依頼", "お届け先住所", "配送先住所に不備",
+        "配達に伺いました", "配送状況を確認", "荷物をお届け",
+        "redelivery", "delivery address"
+    });
+    const bool urgency_lure = contains_any(text, {
+        "至急ご確認", "至急対応", "本日中に", "24時間以内",
+        "期限までに", "まもなく無効", "直ちに確認", "immediately",
+        "within 24 hours", "final warning"
+    });
 
+    if (account_lure)
+        add(r, "content.account_lure", 10, "アカウント確認・停止を促す表現");
+    if (payment_lure)
+        add(r, "content.payment_lure", 10, "支払い・決済情報の確認を促す表現");
+    if (delivery_lure)
+        add(r, "content.delivery_lure", 10, "配送・再配達の確認を促す表現");
+    if (urgency_lure)
+        add(r, "content.urgency", 5, "期限や緊急性を強調する表現");
+
+    const auto url_count = count_url_markers(text);
+    const bool action_lure = account_lure || payment_lure || delivery_lure;
+    if (url_count > 0 && action_lure)
+        add(r, "content.lure_with_url", 10, "誘導表現とURLが同時に存在");
     if (settings_.enable_url_rules) {
         if (std::regex_search(text, std::regex(R"(https?://(?:\d{1,3}\.){3}\d{1,3})", std::regex::icase)))
             add(r, "url.ip_literal", 20, "IPアドレスを直接指定したURL");
         if (contains(text, "xn--"))
             add(r, "url.punycode", 10, "Punycodeを含むURLまたはドメイン");
+        if (contains_any(text, {
+            "bit.ly/", "tinyurl.com/", "t.co/", "is.gd/", "cutt.ly/",
+            "rebrand.ly/", "shorturl.at/"
+        }))
+            add(r, "url.shortener", 8, "短縮URLサービスへのリンク");
+        if (url_count >= 4)
+            add(r, "url.multiple", 8, "複数のURLを検出");
     }
 
     if (model) {
