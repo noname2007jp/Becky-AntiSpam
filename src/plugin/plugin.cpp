@@ -48,6 +48,7 @@ BeckyGetSourceFn g_becky_get_source = nullptr;
 BeckySetSourceFn g_becky_set_source = nullptr;
 // mail ID -> classification header; applied after the receive batch is saved.
 std::unordered_map<std::string, std::string> g_pending_headers;
+std::unordered_map<std::string, std::string> g_pending_verification;
 constexpr int kActionAddHeader = 8;
 constexpr int kFilterPass = 1;
 constexpr char kClassificationHeader[] = "x-becky-antispam";
@@ -302,21 +303,46 @@ int WINAPI BKC_OnFinishRetrieve(int message_count) {
         source.insert(separator + 2, item.second + "\r\n");
         g_becky_set_source(mail_id, source.c_str());
 
-        const auto* verify_ptr = g_becky_get_source(mail_id);
-        if (verify_ptr && std::string(verify_ptr).find(item.second) != std::string::npos)
-            ++updated;
-        else
-            ++verify_failed;
+        // GetSource may expose a callback-scoped/cache-backed buffer. Do not
+        // treat an immediate read-after-write as authoritative; verify from a
+        // later Becky! callback after the receive operation has unwound.
+        g_pending_verification[item.first] = item.second;
+        ++updated; // SetSource was issued; persistence is verified asynchronously.
     }
-    const std::size_t failed = source_unavailable + malformed_source + verify_failed;
+    const std::size_t failed = source_unavailable + malformed_source;
     operational_log(failed == 0 ? "INFO" : "WARN",
-        std::string("post-retrieve header update completed updated=") +
+        std::string("post-retrieve header set issued=") +
         std::to_string(updated) +
         " source_unavailable=" + std::to_string(source_unavailable) +
         " malformed_source=" + std::to_string(malformed_source) +
-        " verify_failed=" + std::to_string(verify_failed) +
+        " deferred_verification=" + std::to_string(g_pending_verification.size()) +
         " batch_messages=" + std::to_string(message_count));
     g_pending_headers.clear();
+    return 0;
+}
+
+int WINAPI BKC_OnEveryMinute() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_pending_verification.empty()) return 0;
+    if (!g_becky_get_source) {
+        operational_log("ERROR", "deferred header verification unavailable: BKA_GetSource missing");
+        g_pending_verification.clear();
+        return 0;
+    }
+
+    std::size_t verified = 0;
+    std::size_t missing = 0;
+    for (const auto& item : g_pending_verification) {
+        const auto* source_ptr = g_becky_get_source(item.first.c_str());
+        if (source_ptr && std::string(source_ptr).find(item.second) != std::string::npos)
+            ++verified;
+        else
+            ++missing;
+    }
+    operational_log(missing == 0 ? "INFO" : "WARN",
+        std::string("deferred header verification verified=") +
+        std::to_string(verified) + " missing=" + std::to_string(missing));
+    g_pending_verification.clear();
     return 0;
 }
 }
