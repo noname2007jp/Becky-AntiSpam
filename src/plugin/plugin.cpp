@@ -229,11 +229,15 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
     }
 }
 
-int WINAPI BKC_OnRetrieve(LPCSTR, LPCSTR) {
+int WINAPI BKC_OnRetrieve(LPCSTR message, LPCSTR) {
     // ACTION_ADDHEADER is applied by Becky! during BKC_OnBeforeFilter2.
-    // This callback is intentionally observational only; do not rewrite the
-    // persisted message after retrieval.
+    // Inspect only the presence of our marker; never log message content.
+    const bool header_observed = message &&
+        std::strstr(message, "X-Becky-AntiSpam: ") != nullptr;
     operational_log("INFO", "retrieve callback entered (header handled by filter)");
+    operational_log(header_observed ? "INFO" : "WARN",
+        std::string("retrieve callback header observed=") +
+        (header_observed ? "yes" : "no"));
     return 0;
 }
 }
