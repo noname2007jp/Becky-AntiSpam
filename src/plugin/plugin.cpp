@@ -41,14 +41,7 @@ std::unique_ptr<beckyas::MailPipeline> g_pipeline;
 std::filesystem::path g_data_dir, g_audit_log, g_debug_log;
 LogSettings g_log_settings;
 using BeckyAllocFn = LPVOID (WINAPI*)(DWORD);
-using BeckyGetSourceFn = LPSTR (WINAPI*)(LPCSTR);
-using BeckySetSourceFn = void (WINAPI*)(LPCSTR, LPCSTR);
 BeckyAllocFn g_becky_alloc = nullptr;
-BeckyGetSourceFn g_becky_get_source = nullptr;
-BeckySetSourceFn g_becky_set_source = nullptr;
-// mail ID -> classification header; applied after the receive batch is saved.
-std::unordered_map<std::string, std::string> g_pending_headers;
-std::unordered_map<std::string, std::string> g_pending_verification;
 constexpr int kActionAddHeader = 8;
 constexpr int kFilterPass = 1;
 constexpr char kClassificationHeader[] = "x-becky-antispam";
@@ -91,12 +84,6 @@ bool initialize_plugin() {
     const auto becky_module = GetModuleHandleW(nullptr);
     g_becky_alloc = becky_module
         ? reinterpret_cast<BeckyAllocFn>(GetProcAddress(becky_module, "BKA_Alloc"))
-        : nullptr;
-    g_becky_get_source = becky_module
-        ? reinterpret_cast<BeckyGetSourceFn>(GetProcAddress(becky_module, "BKA_GetSource"))
-        : nullptr;
-    g_becky_set_source = becky_module
-        ? reinterpret_cast<BeckySetSourceFn>(GetProcAddress(becky_module, "BKA_SetSource"))
         : nullptr;
     std::wstring path_error;
     if (!beckyas::plugin::prepare_data_directory(g_data_dir, &path_error)) {
@@ -273,4 +260,5 @@ int WINAPI BKC_OnOpenMail(LPCSTR) {
 
 int WINAPI BKC_OnEveryMinute() {
     return 0;
-}}
+}
+}
