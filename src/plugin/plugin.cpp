@@ -40,9 +40,11 @@ std::unique_ptr<beckyas::MailPipeline> g_pipeline;
 std::filesystem::path g_data_dir, g_audit_log, g_debug_log;
 LogSettings g_log_settings;
 using BeckyAllocFn = LPVOID (WINAPI*)(DWORD);
-using BeckySetSourceFn = void (WINAPI*)(LPCTSTR, LPCTSTR);
+using BeckySetSourceFn = void (WINAPI*)(LPCSTR, LPCSTR);
+using BeckyGetSourceFn = LPSTR (WINAPI*)(LPCSTR);
 BeckyAllocFn g_becky_alloc = nullptr;
 BeckySetSourceFn g_becky_set_source = nullptr;
+BeckyGetSourceFn g_becky_get_source = nullptr;
 constexpr char kClassificationHeader[] = "x-becky-antispam";
 
 void log_line(const std::filesystem::path& path, const char* level,
@@ -86,6 +88,9 @@ bool initialize_plugin() {
         : nullptr;
     g_becky_set_source = becky_module
         ? reinterpret_cast<BeckySetSourceFn>(GetProcAddress(becky_module, "BKA_SetSource"))
+        : nullptr;
+    g_becky_get_source = becky_module
+        ? reinterpret_cast<BeckyGetSourceFn>(GetProcAddress(becky_module, "BKA_GetSource"))
         : nullptr;
     std::wstring path_error;
     if (!beckyas::plugin::prepare_data_directory(g_data_dir, &path_error)) {
@@ -170,14 +175,22 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR, LPCSTR, int* action, char** parameter) {
     return 0;
 }
 
-int WINAPI BKC_OnRetrieve(LPCTSTR message, LPCTSTR mail_id) {
+int WINAPI BKC_OnRetrieve(LPCSTR message, LPCSTR mail_id) {
     operational_log("INFO", "retrieve callback entered");
     if (!message || !mail_id || !*mail_id) {
         operational_log("WARN", "retrieve callback skipped: message or mail ID missing");
         return 0;
     }
     try {
-        const std::string source(message);
+        std::string source(message);
+        // BKC_OnRetrieve receives an SMTP-style terminator ("\r\n.\r\n").
+        // SetSource expects the stored RFC 5322 message, without that terminator.
+        constexpr char kSmtpTerminator[] = "\r\n.\r\n";
+        if (source.size() >= sizeof(kSmtpTerminator) - 1 &&
+            source.compare(source.size() - (sizeof(kSmtpTerminator) - 1),
+                sizeof(kSmtpTerminator) - 1, kSmtpTerminator) == 0) {
+            source.resize(source.size() - (sizeof(kSmtpTerminator) - 1));
+        }
         if (source.empty() || source.size() > kMaxMessageBytes) {
             operational_log("WARN", "retrieve annotation skipped: empty source or size limit exceeded");
             return 0;
@@ -188,8 +201,8 @@ int WINAPI BKC_OnRetrieve(LPCTSTR message, LPCTSTR mail_id) {
             operational_log("ERROR", "retrieve annotation skipped: pipeline unavailable");
             return 0;
         }
-        if (!g_becky_set_source) {
-            operational_log("ERROR", "retrieve annotation unavailable: BKA_SetSource not found");
+        if (!g_becky_set_source || !g_becky_get_source) {
+            operational_log("ERROR", "retrieve annotation unavailable: BKA_SetSource or BKA_GetSource not found");
             return 0;
         }
 
@@ -233,10 +246,16 @@ int WINAPI BKC_OnRetrieve(LPCTSTR message, LPCTSTR mail_id) {
         updated.insert(insert_at, std::string("X-Becky-AntiSpam: ") + label + "\r\n");
         g_becky_set_source(mail_id, updated.c_str());
 
+        // SetSource has no return value. Read the stored source back and
+        // verify the marker before reporting success.
+        const LPSTR stored_source = g_becky_get_source(mail_id);
+        const bool persisted = stored_source &&
+            std::strstr(stored_source, "X-Becky-AntiSpam: ") != nullptr;
         const char* verdict = result.verdict == beckyas::Verdict::Spam ? "spam" :
             result.verdict == beckyas::Verdict::Review ? "review" : "ham";
-        operational_log("INFO", std::string("retrieve source update requested verdict=") +
-            verdict + " bytes=" + std::to_string(updated.size()));
+        operational_log(persisted ? "INFO" : "ERROR",
+            std::string("retrieve source update ") + (persisted ? "verified" : "not verified") +
+            " verdict=" + verdict + " bytes=" + std::to_string(updated.size()));
     } catch (...) {
         operational_log("ERROR", "unexpected exception in retrieve annotation callback");
     }
