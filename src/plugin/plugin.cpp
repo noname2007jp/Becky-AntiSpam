@@ -167,7 +167,7 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
     try {
         std::string source(message);
         // OnBeforeFilter2 receives the same SMTP-style terminator as OnRetrieve.
-        constexpr char kSmtpTerminator[] = "\\r\\n.\\r\\n";
+        constexpr char kSmtpTerminator[] = "\r\n.\r\n";
         if (source.size() >= sizeof(kSmtpTerminator) - 1 &&
             source.compare(source.size() - (sizeof(kSmtpTerminator) - 1),
                 sizeof(kSmtpTerminator) - 1, kSmtpTerminator) == 0) {
