@@ -44,7 +44,7 @@ using BeckyAllocFn = LPVOID (WINAPI*)(DWORD);
 BeckyAllocFn g_becky_alloc = nullptr;
 constexpr int kActionAddHeader = 8;
 constexpr int kFilterPass = 1;
-constexpr char kClassificationHeader[] = "x-becky-antispam";
+constexpr char kClassificationHeader[] = "x-antispam-classification";
 
 void log_line(const std::filesystem::path& path, const char* level,
               const std::string& message, std::uint64_t limit) noexcept {
@@ -209,7 +209,7 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
 
         const char* label = result.verdict == beckyas::Verdict::Spam ? "Spam" :
             result.verdict == beckyas::Verdict::Review ? "Review" : "Ham";
-        const std::string header = std::string("X-Becky-AntiSpam: ") + label;
+        const std::string header = std::string("X-AntiSpam-Classification: ") + label;
         auto* callback_buffer = static_cast<char*>(g_becky_alloc(
             static_cast<DWORD>(header.size() + 1)));
         if (!callback_buffer) {
@@ -240,10 +240,15 @@ int WINAPI BKC_OnRetrieve(LPCSTR message, LPCSTR mail_id) {
         operational_log("WARN", "retrieve callback missing message or mail ID");
         return 0;
     }
-    const char* marker = "X-Becky-AntiSpam:";
-    const bool observed = std::strstr(message, marker) != nullptr;
+    // Verify the field only in the RFC 5322 header block. A substring in
+    // the message body must not be counted as a successful header insertion.
+    const char* header_end = std::strstr(message, "\\r\\n\\r\\n");
+    const char* marker = "X-AntiSpam-Classification:";
+    const char* found = std::strstr(message, marker);
+    const bool observed = header_end && found && found < header_end &&
+        (found == message || (found >= message + 2 && found[-2] == '\\r' && found[-1] == '\\n'));
     operational_log(observed ? "INFO" : "WARN",
-        std::string("retrieve callback saved-message header observed=") +
+        std::string("retrieve callback classification header in header-block=") +
         (observed ? "yes" : "no"));
     return 0;
 }
