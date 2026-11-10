@@ -281,6 +281,22 @@ void train_selected_messages(bool spam, const char* trigger) {
             " reclassified=" + std::to_string(reclassified) +
             " duplicate=" + std::to_string(duplicate) +
             " failed=" + std::to_string(failed));
+
+        beckyas::EvaluationStats evaluation;
+        std::string evaluation_error;
+        if (g_pipeline->get_evaluation_stats(evaluation, &evaluation_error)) {
+            operational_log("INFO", std::string("evaluation metrics pending=") +
+                std::to_string(evaluation.pending) +
+                " labeled=" + std::to_string(evaluation.labeled) +
+                " spam_as_ham=" + std::to_string(evaluation.spam_as_ham) +
+                " spam_as_review=" + std::to_string(evaluation.spam_as_review) +
+                " spam_as_spam=" + std::to_string(evaluation.spam_as_spam) +
+                " ham_as_ham=" + std::to_string(evaluation.ham_as_ham) +
+                " ham_as_review=" + std::to_string(evaluation.ham_as_review) +
+                " ham_as_spam=" + std::to_string(evaluation.ham_as_spam));
+        } else {
+            operational_log("WARN", "evaluation metrics unavailable: " + evaluation_error);
+        }
     } catch (...) {
         operational_log("ERROR", std::string("manual training callback failed trigger=") + trigger);
     }
@@ -457,6 +473,13 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
         if (has_classification_header) {
             operational_log("INFO", "filter annotation skipped: classification header already exists");
             return kFilterPass;
+        }
+
+        // Evaluation mode stores only a one-way hash and the prediction metadata.
+        // The user's later Ham/Spam training action supplies the ground-truth label.
+        if (g_log_settings.test_mode &&
+            !g_pipeline->record_prediction(parsed.message, result, &error)) {
+            operational_log("WARN", "evaluation prediction not stored: " + error);
         }
 
         const char* label = result.verdict == beckyas::Verdict::Spam ? "Spam" :
