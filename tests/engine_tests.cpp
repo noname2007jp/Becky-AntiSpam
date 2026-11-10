@@ -363,8 +363,8 @@ int main() {
         assert(pipeline.record_prediction(new_spam, spam_result, &error));
         assert(pipeline.record_prediction(new_ham, ham_result, &error));
         // Simulate the header inserted by BKC_OnBeforeFilter2 before Becky! saves the mail.
-        const auto saved_spam = "X-AntiSpam-Classification: Spam\\r\\n" + new_spam;
-        const auto saved_ham = "X-AntiSpam-Classification: Ham\\r\\n" + new_ham;
+        const auto saved_spam = "X-AntiSpam-Classification: Spam\r\n" + new_spam;
+        const auto saved_ham = "X-AntiSpam-Classification: Ham\r\n" + new_ham;
         assert(pipeline.train(saved_spam, true, nullptr, &error) == TrainStatus::Trained);
         assert(pipeline.train(saved_ham, false, nullptr, &error) == TrainStatus::Trained);
         EvaluationStats pipeline_evaluation;
