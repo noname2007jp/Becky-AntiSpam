@@ -29,6 +29,12 @@ public:
                       ParsedMail* parsed = nullptr,
                       std::string* error = nullptr);
 
+    // Persist the pre-training prediction using a content-only classifier hash.
+    bool record_prediction(const Message& message, const Result& result,
+                           std::string* error = nullptr);
+    bool get_evaluation_stats(EvaluationStats& stats,
+                              std::string* error = nullptr) const;
+
     const BayesianModel& model() const noexcept { return model_; }
 
 private:
