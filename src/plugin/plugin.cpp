@@ -254,26 +254,6 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
                 " reason=" + finding.reason);
         }
 
-        // Detailed diagnostics intentionally contain classifier metadata only.
-        // Never log sender, subject, headers, body, tokens, or raw message data.
-        const char* verdict_name = result.verdict == beckyas::Verdict::Spam ? "Spam" :
-            result.verdict == beckyas::Verdict::Review ? "Review" : "Ham";
-        const auto& model = g_pipeline->model();
-        const auto bayes_percent = static_cast<int>(
-            result.bayes_probability * 100.0 + 0.5);
-        test_log("INFO", std::string("classification verdict=") + verdict_name +
-            " score=" + std::to_string(result.score) +
-            " bayes_probability=" + std::to_string(bayes_percent) + "%" +
-            " ham_samples=" + std::to_string(model.ham_samples()) +
-            " spam_samples=" + std::to_string(model.spam_samples()) +
-            " findings=" + std::to_string(result.findings.size()));
-        for (const auto& finding : result.findings) {
-            test_log("INFO", std::string("finding rule=") + finding.rule +
-                " score=" + (finding.score >= 0 ? "+" : "") +
-                std::to_string(finding.score) +
-                " reason=" + finding.reason);
-        }
-
         const bool has_classification_header = std::any_of(
             parsed.headers.begin(), parsed.headers.end(),
             [](const beckyas::HeaderField& field) {
