@@ -478,7 +478,7 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
         // Evaluation mode stores only a one-way hash and the prediction metadata.
         // The user's later Ham/Spam training action supplies the ground-truth label.
         if (g_log_settings.test_mode &&
-            !g_pipeline->record_prediction(parsed.message, result, &error)) {
+            !g_pipeline->record_prediction(source, result, &error)) {
             operational_log("WARN", "evaluation prediction not stored: " + error);
         }
 
