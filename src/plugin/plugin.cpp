@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cctype>
 #include <unordered_map>
+#include <array>
 
 int show_plugin_setup(HWND);
 
@@ -45,6 +46,16 @@ std::filesystem::path g_data_dir, g_audit_log, g_debug_log;
 LogSettings g_log_settings;
 using BeckyAllocFn = LPVOID (WINAPI*)(DWORD);
 BeckyAllocFn g_becky_alloc = nullptr;
+using BeckyGetWindowHandlesFn = BOOL (WINAPI*)(HWND*, HWND*, HWND*, HWND*);
+using BeckyGetNextMailFn = int (WINAPI*)(int, LPSTR, int, BOOL);
+using BeckyGetSourceFn = LPSTR (WINAPI*)(LPCSTR);
+using BeckyFreeFn = void (WINAPI*)(LPVOID);
+BeckyGetWindowHandlesFn g_becky_get_windows = nullptr;
+BeckyGetNextMailFn g_becky_get_next_mail = nullptr;
+BeckyGetSourceFn g_becky_get_source = nullptr;
+BeckyFreeFn g_becky_free = nullptr;
+int g_ham_key = 'H';
+int g_spam_key = 'S';
 constexpr int kActionAddHeader = 8;
 constexpr int kFilterPass = 1;
 constexpr char kClassificationHeader[] = "x-antispam-classification";
@@ -112,6 +123,18 @@ bool initialize_plugin() {
     g_becky_alloc = becky_module
         ? reinterpret_cast<BeckyAllocFn>(GetProcAddress(becky_module, "BKA_Alloc"))
         : nullptr;
+    g_becky_get_windows = becky_module
+        ? reinterpret_cast<BeckyGetWindowHandlesFn>(GetProcAddress(becky_module, "BKA_GetWindowHandles"))
+        : nullptr;
+    g_becky_get_next_mail = becky_module
+        ? reinterpret_cast<BeckyGetNextMailFn>(GetProcAddress(becky_module, "BKA_GetNextMail"))
+        : nullptr;
+    g_becky_get_source = becky_module
+        ? reinterpret_cast<BeckyGetSourceFn>(GetProcAddress(becky_module, "BKA_GetSource"))
+        : nullptr;
+    g_becky_free = becky_module
+        ? reinterpret_cast<BeckyFreeFn>(GetProcAddress(becky_module, "BKA_Free"))
+        : nullptr;
     std::wstring path_error;
     if (!beckyas::plugin::prepare_data_directory(g_data_dir, &path_error)) {
         OutputDebugStringW((L"BeckyAntiSpam: " + path_error + L"\n").c_str());
@@ -172,6 +195,13 @@ bool initialize_plugin() {
     }
 
     const auto ini = g_data_dir / L"settings.ini";
+    wchar_t ham_key[8] = L"H", spam_key[8] = L"S";
+    GetPrivateProfileStringW(L"review", L"ham_key", L"H", ham_key, 8, ini.c_str());
+    GetPrivateProfileStringW(L"review", L"spam_key", L"S", spam_key, 8, ini.c_str());
+    g_ham_key = (ham_key[0] >= L'a' && ham_key[0] <= L'z')
+        ? ham_key[0] - L'a' + L'A' : ham_key[0];
+    g_spam_key = (spam_key[0] >= L'a' && spam_key[0] <= L'z')
+        ? spam_key[0] - L'a' + L'A' : spam_key[0];
     g_log_settings.enabled = GetPrivateProfileIntW(L"logging", L"enabled", 1, ini.c_str()) != 0;
     g_log_settings.test_mode = GetPrivateProfileIntW(L"test_mode", L"enabled", 0, ini.c_str()) != 0;
     operational_log("INFO", std::string("startup logging=") +
@@ -378,6 +408,71 @@ int WINAPI BKC_OnFinishRetrieve(int message_count) {
     operational_log("INFO", std::string("retrieve session finished messages=") +
         std::to_string(message_count));
     return 0;
+}
+
+int WINAPI BKC_OnKeyDispatch(HWND target, int key, int shift) {
+    // Only unmodified configured keys in the mail-list window are accepted.
+    if (shift != 0 || (key != g_ham_key && key != g_spam_key)) return 0;
+    if (!g_becky_get_windows || !g_becky_get_next_mail ||
+        !g_becky_get_source || !g_becky_free) return 0;
+
+    HWND main_window = nullptr, tree_window = nullptr;
+    HWND list_window = nullptr, view_window = nullptr;
+    if (!g_becky_get_windows(&main_window, &tree_window, &list_window, &view_window) ||
+        !list_window) return 0;
+
+    HWND focus = GetFocus();
+    const bool list_has_focus = focus &&
+        (focus == list_window || IsChild(list_window, focus));
+    if (!(target == list_window || list_has_focus)) return 0;
+
+    const bool spam = key == g_spam_key;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_pipeline && !initialize_plugin()) {
+        operational_log("ERROR", "manual training skipped: pipeline unavailable");
+        return 1;
+    }
+
+    std::size_t selected = 0, trained = 0, reclassified = 0, duplicate = 0, failed = 0;
+    int position = -1;
+    for (std::size_t guard = 0; guard < 10000; ++guard) {
+        std::array<char, 1024> mail_id{};
+        const int next = g_becky_get_next_mail(position, mail_id.data(),
+                                               static_cast<int>(mail_id.size()), TRUE);
+        if (next == -1) break;
+        position = next;
+        if (mail_id[0] == '\0') { ++failed; continue; }
+        ++selected;
+
+        LPSTR source = g_becky_get_source(mail_id.data());
+        if (!source) { ++failed; continue; }
+        const void* terminator = std::memchr(source, '\0', kMaxMessageBytes + 1);
+        if (!terminator) {
+            g_becky_free(source);
+            ++failed;
+            continue;
+        }
+        std::string raw(source, static_cast<const char*>(terminator) - source);
+        g_becky_free(source);
+
+        std::string error;
+        const auto status = g_pipeline->train(raw, spam, nullptr, &error);
+        switch (status) {
+        case beckyas::TrainStatus::Trained: ++trained; break;
+        case beckyas::TrainStatus::Reclassified: ++reclassified; break;
+        case beckyas::TrainStatus::Duplicate: ++duplicate; break;
+        case beckyas::TrainStatus::Error: ++failed; break;
+        }
+    }
+
+    const char* label = spam ? "spam" : "ham";
+    operational_log("INFO", std::string("manual training label=") + label +
+        " selected=" + std::to_string(selected) +
+        " trained=" + std::to_string(trained) +
+        " reclassified=" + std::to_string(reclassified) +
+        " duplicate=" + std::to_string(duplicate) +
+        " failed=" + std::to_string(failed));
+    return 1; // Suppress Becky!'s subsequent command for this key.
 }
 
 int WINAPI BKC_OnOpenMail(LPCSTR) {
