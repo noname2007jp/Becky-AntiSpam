@@ -60,11 +60,8 @@ else()
     target_compile_options(antispam_pipeline PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-if(WIN32)
-    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
-        message(FATAL_ERROR "Becky! is 32-bit; BeckyAntiSpam plugin must be built with Win32/x86.")
-    endif()
-
+if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 4)
+    # Becky! is a 32-bit application; its plugin must remain Win32/x86.
     add_library(becky_antispam_plugin SHARED
         src/plugin/plugin.cpp
         src/plugin/settings_dialog.cpp
@@ -81,7 +78,17 @@ if(WIN32)
     if(MSVC)
         target_compile_options(becky_antispam_plugin PRIVATE /W4 /permissive- /utf-8)
     endif()
-
+elseif(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+    # The AI worker is a separate 64-bit process. Inference is intentionally
+    # disabled until the fine-tuned ONNX model and tokenizer are validated.
+    add_executable(becky_antispam_ai_worker src/ai/worker.cpp)
+    target_include_directories(becky_antispam_ai_worker PRIVATE src/ai)
+    set_target_properties(becky_antispam_ai_worker PROPERTIES
+        OUTPUT_NAME "AntiSpamAI"
+    )
+    if(MSVC)
+        target_compile_options(becky_antispam_ai_worker PRIVATE /W4 /permissive- /utf-8)
+    endif()
 endif()
 
 add_executable(antispam_tests tests/engine_tests.cpp)
