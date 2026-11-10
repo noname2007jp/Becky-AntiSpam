@@ -56,6 +56,10 @@ struct BayesComparison {
     double bernoulli_probability = 0.0;
     double presence_log_odds = 0.0;
     double bernoulli_log_odds = 0.0;
+    double correlation_adjusted_probability = 0.0;
+    double correlation_adjusted_log_odds = 0.0;
+    double correlation_adjustment_scale = 0.0;
+    std::size_t correlation_adjusted_features = 0;
     std::size_t vocabulary_features = 0;
 };
 
