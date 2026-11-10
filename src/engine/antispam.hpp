@@ -41,10 +41,20 @@ struct Finding {
 
 enum class Verdict { Ham, Review, Spam };
 
+struct BayesDiagnostics {
+    std::size_t total_tokens = 0;
+    std::size_t known_tokens = 0;
+    std::size_t unknown_tokens = 0;
+    std::size_t spam_evidence_tokens = 0;
+    std::size_t ham_evidence_tokens = 0;
+    double log_odds = 0.0;
+};
+
 struct Result {
     Verdict verdict = Verdict::Ham;
     int score = 0;
     double bayes_probability = 0.0;
+    BayesDiagnostics bayes_diagnostics;
     // Privacy-safe diagnostics: booleans/counts only; never retain matched text or domains.
     std::size_t brand_rules_checked = 0;
     bool brand_rule_matched = false;
@@ -61,7 +71,7 @@ class BayesianModel {
 public:
     explicit BayesianModel(std::size_t max_vocabulary = 50000);
     void train(const std::string& text, bool spam);
-    double spam_probability(const std::string& text) const;
+    double spam_probability(const std::string& text, BayesDiagnostics* diagnostics = nullptr) const;
     std::size_t spam_samples() const noexcept { return spam_samples_; }
     std::size_t ham_samples() const noexcept { return ham_samples_; }
     std::size_t vocabulary_size() const noexcept { return words_.size(); }
