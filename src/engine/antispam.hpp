@@ -45,6 +45,15 @@ struct Result {
     Verdict verdict = Verdict::Ham;
     int score = 0;
     double bayes_probability = 0.0;
+    // Privacy-safe diagnostics: booleans/counts only; never retain matched text or domains.
+    std::size_t brand_rules_checked = 0;
+    bool brand_rule_matched = false;
+    bool brand_subject_match = false;
+    bool brand_display_match = false;
+    bool brand_from_domain_present = false;
+    bool brand_from_allowed = false;
+    std::size_t brand_url_hosts_checked = 0;
+    bool brand_url_domain_mismatch = false;
     std::vector<Finding> findings;
 };
 
