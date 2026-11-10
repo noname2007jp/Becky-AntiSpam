@@ -96,6 +96,8 @@ enabled=0
 - `logging.enabled=1`: 通常ログを `operation.log` に記録（初期値ON、約5MiBでローテーション）
 - `logging.enabled=0`: ファイルログをすべて停止
 - `test_mode.enabled=1`: 詳細ログを `test-detail.log` に追加記録（初期値OFF、約20MiBでローテーション）
+- `brand-domains.txt` はUTF-8の1行1ルール形式です。`別名1;別名2|許可ドメイン1;許可ドメイン2` と記載します。初回起動時にAmerican Expressの初期ルールを作成します。許可ドメインは完全一致またはそのサブドメインを許可します。
+- ブランド名がSubjectまたはFrom表示名に含まれ、Fromドメインが許可ドメインと一致しない場合は `brand.domain_mismatch` を加点します。本文URLも不一致の場合は `brand.url_domain_mismatch` を加点します。
 - テストモードでは解析サイズ・ヘッダー数・件名／分類用ヘッダー／本文のバイト数・URL数・MIME構成・添付数・判定値・ルール名／理由・解析警告数を記録します。メール本文、件名、送信者、ヘッダー値そのもの、URLそのものは記録しません。詳細ログは `test-detail.log` に加え、`operation.log` に `[TEST]` 付きで記録します。
 
 現段階のDLLは監査専用です。Becky!の `PlugIns` フォルダーへ配置してロード確認する前に、既存設定・メールデータのバックアップを推奨します。メールの移動・削除は行いません。設定・学習DB・ログは設定画面に表示されるデータ保存先へ作成されます。
