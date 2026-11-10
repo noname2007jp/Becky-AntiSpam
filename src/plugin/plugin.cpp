@@ -460,7 +460,7 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
             " bayes_ham_evidence=" + std::to_string(result.bayes_diagnostics.ham_evidence_tokens) +
             " bayes_log_odds=" + std::to_string(result.bayes_diagnostics.log_odds) +
             " bayes_bernoulli_probability=" +
-                std::to_string(static_cast<int>(std::lround(result.bayes_comparison.bernoulli_probability * 100.0))) + "%" +
+                std::to_string(static_cast<int>(result.bayes_comparison.bernoulli_probability * 100.0 + 0.5)) + "%" +
             " bayes_bernoulli_log_odds=" +
                 std::to_string(result.bayes_comparison.bernoulli_log_odds) +
             " bayes_vocabulary_features=" +
