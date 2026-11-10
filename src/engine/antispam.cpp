@@ -185,7 +185,9 @@ void BayesianModel::decay(double factor) {
     }
 }
 
-double BayesianModel::spam_probability(const std::string& text) const {
+double BayesianModel::spam_probability(const std::string& text,
+                                         BayesDiagnostics* diagnostics) const {
+    if (diagnostics) *diagnostics = {};
     if (spam_samples_ + ham_samples_ == 0) return 0.0;
     const double prior = (static_cast<double>(spam_samples_) + 1.0) /
         (static_cast<double>(spam_samples_ + ham_samples_) + 2.0);
@@ -193,16 +195,36 @@ double BayesianModel::spam_probability(const std::string& text) const {
     double log_ham = std::log(1.0 - prior);
     std::unordered_set<std::string> unique;
     for (const auto& word : tokenize(text)) unique.insert(word);
+    if (diagnostics) diagnostics->total_tokens = unique.size();
+
     for (const auto& word : unique) {
         const auto it = words_.find(word);
-        const double s = it == words_.end() ? 0.0 : static_cast<double>(it->second.spam);
-        const double h = it == words_.end() ? 0.0 : static_cast<double>(it->second.ham);
+        // A token absent from both training classes is unknown, not evidence
+        // for the smaller class. Applying class-specific denominators to
+        // (0,0) counts incorrectly biases every unseen token toward Spam when
+        // ham_samples_ is larger than spam_samples_.
+        if (it == words_.end()) {
+            if (diagnostics) ++diagnostics->unknown_tokens;
+            continue;
+        }
+
+        if (diagnostics) ++diagnostics->known_tokens;
+        const double s = static_cast<double>(it->second.spam);
+        const double h = static_cast<double>(it->second.ham);
         const double p_s = (s + 1.0) / (static_cast<double>(spam_samples_) + 2.0);
         const double p_h = (h + 1.0) / (static_cast<double>(ham_samples_) + 2.0);
+        const double contribution = std::log(p_s) - std::log(p_h);
+        if (diagnostics) {
+            if (contribution > 1e-12) ++diagnostics->spam_evidence_tokens;
+            else if (contribution < -1e-12) ++diagnostics->ham_evidence_tokens;
+        }
         log_spam += std::log(p_s);
         log_ham += std::log(p_h);
     }
-    const double delta = std::clamp(log_ham - log_spam, -40.0, 40.0);
+
+    const double log_odds = log_spam - log_ham;
+    if (diagnostics) diagnostics->log_odds = log_odds;
+    const double delta = std::clamp(-log_odds, -40.0, 40.0);
     return 1.0 / (1.0 + std::exp(delta));
 }
 
@@ -355,7 +377,7 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
     }
 
     if (model) {
-        r.bayes_probability = model->spam_probability(text);
+        r.bayes_probability = model->spam_probability(text, &r.bayes_diagnostics);
         if (model->spam_samples() >= 5 && model->ham_samples() >= 5) {
             const int bayes_score = static_cast<int>(std::lround(r.bayes_probability * 40.0));
             if (bayes_score > 0) add(r, "bayes.probability", bayes_score, "学習モデルによる迷惑メール確率");
