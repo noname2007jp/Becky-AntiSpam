@@ -225,6 +225,17 @@ int main() {
     assert(imbalanced.spam_probability("knownspamfeature") > prior_probability);
     assert(imbalanced.spam_probability("knownhamfeature") < prior_probability);
 
+    const auto comparison = imbalanced.compare_probabilities("knownspamfeature unknownfeature");
+    assert(std::isfinite(comparison.presence_probability));
+    assert(std::isfinite(comparison.bernoulli_probability));
+    assert(comparison.vocabulary_features == imbalanced.vocabulary_size());
+    assert(std::abs(comparison.presence_probability -
+        imbalanced.spam_probability("knownspamfeature unknownfeature")) < 1e-12);
+    // Bernoulli scoring includes absent vocabulary features and may differ
+    // from the presence-only baseline.
+    assert(std::abs(comparison.bernoulli_probability -
+        comparison.presence_probability) > 1e-9);
+
     BayesianModel bounded(3);
     bounded.train("alpha beta gamma", true);
     bounded.train("delta epsilon zeta", false);
