@@ -30,6 +30,7 @@ struct Settings {
     int review_threshold = 30;
     bool enable_authentication_rules = true;
     bool enable_url_rules = true;
+    bool enable_bayes_comparison = false;
     std::vector<BrandRule> brand_rules;
 };
 
