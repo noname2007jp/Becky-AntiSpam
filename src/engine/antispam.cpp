@@ -75,7 +75,8 @@ bool looks_like_brand_domain(const std::string& host, const std::vector<std::str
         if (key.size() < 6) continue;
         for (const auto& label : labels) {
             if (label.find(key) != std::string::npos) return true;
-            if (label.size() >= 6 && edit_distance(label, key) <= 2) return true;
+            if (label.size() >= 6 && label.size() <= 64 && key.size() <= 64 &&
+                edit_distance(label, key) <= 2) return true;
         }
     }
     return false;
