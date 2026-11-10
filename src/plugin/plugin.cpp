@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <fstream>
 #include <vector>
+#include <utility>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -139,7 +140,13 @@ bool initialize_plugin() {
     {
         std::ifstream input(brand_file, std::ios::binary);
         std::string line;
+        bool first_line = true;
         while (std::getline(input, line)) {
+            if (first_line && line.size() >= 3 &&
+                static_cast<unsigned char>(line[0]) == 0xEF &&
+                static_cast<unsigned char>(line[1]) == 0xBB &&
+                static_cast<unsigned char>(line[2]) == 0xBF) line.erase(0, 3);
+            first_line = false;
             if (!line.empty() && line.back() == '\r') line.pop_back();
             if (line.empty() || line[0] == '#') continue;
             const auto separator = line.find('|');
