@@ -360,10 +360,13 @@ int main() {
         assert(pipeline.analyze(new_spam, spam_parsed, spam_result, &error));
         assert(pipeline.analyze(new_ham, ham_parsed, ham_result, &error));
         assert(spam_result.bayes_probability > ham_result.bayes_probability);
-        assert(pipeline.record_prediction(spam_parsed.message, spam_result, &error));
-        assert(pipeline.record_prediction(ham_parsed.message, ham_result, &error));
-        assert(pipeline.train(new_spam, true, nullptr, &error) == TrainStatus::Trained);
-        assert(pipeline.train(new_ham, false, nullptr, &error) == TrainStatus::Trained);
+        assert(pipeline.record_prediction(new_spam, spam_result, &error));
+        assert(pipeline.record_prediction(new_ham, ham_result, &error));
+        // Simulate the header inserted by BKC_OnBeforeFilter2 before Becky! saves the mail.
+        const auto saved_spam = "X-AntiSpam-Classification: Spam\\r\\n" + new_spam;
+        const auto saved_ham = "X-AntiSpam-Classification: Ham\\r\\n" + new_ham;
+        assert(pipeline.train(saved_spam, true, nullptr, &error) == TrainStatus::Trained);
+        assert(pipeline.train(saved_ham, false, nullptr, &error) == TrainStatus::Trained);
         EvaluationStats pipeline_evaluation;
         assert(pipeline.get_evaluation_stats(pipeline_evaluation, &error));
         assert(pipeline_evaluation.pending == 0);
@@ -372,7 +375,7 @@ int main() {
                pipeline_evaluation.spam_as_ham == 1);
         assert(pipeline_evaluation.ham_as_ham + pipeline_evaluation.ham_as_review +
                pipeline_evaluation.ham_as_spam == 1);
-        assert(pipeline.train(new_spam, true, nullptr, &error) == TrainStatus::Duplicate);
+        assert(pipeline.train(saved_spam, true, nullptr, &error) == TrainStatus::Duplicate);
     }
     std::filesystem::remove(pipeline_path);
     std::filesystem::remove(pipeline_path + "-wal");
