@@ -11,3 +11,4 @@ EXPORTS
     BKC_OnFinishRetrieve=_BKC_OnFinishRetrieve@4 @18
     BKC_OnEveryMinute=_BKC_OnEveryMinute@0 @19
     BKC_OnOpenMail=_BKC_OnOpenMail@4 @20
+    BKC_OnKeyDispatch=_BKC_OnKeyDispatch@12 @21
