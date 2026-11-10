@@ -128,7 +128,6 @@ int main() {
 #endif
 
 
-    Filter filter;
     Message clean;
     clean.from = "staff@example.jp";
     clean.return_path = "staff@example.jp";
