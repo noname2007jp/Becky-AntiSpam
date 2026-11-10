@@ -225,6 +225,20 @@ int main() {
     assert(imbalanced.spam_probability("knownspamfeature") > prior_probability);
     assert(imbalanced.spam_probability("knownhamfeature") < prior_probability);
 
+    // A Ham-only token seen in just one document must not become Spam evidence
+    // solely because the Spam and Ham class denominators are different.
+    BayesianModel singleton_ham;
+    for (int i = 0; i < 19; ++i)
+        singleton_ham.train("spam_class_background", true);
+    singleton_ham.train("ham_singleton_feature", false);
+    for (int i = 0; i < 130; ++i)
+        singleton_ham.train("ham_class_background", false);
+    const double singleton_prior = singleton_ham.spam_probability("");
+    assert(singleton_ham.spam_probability("ham_singleton_feature") > singleton_prior);
+    const auto singleton_ham_comparison =
+        singleton_ham.compare_probabilities("ham_singleton_feature");
+    assert(singleton_ham_comparison.correlation_adjusted_probability < singleton_prior);
+
     const auto comparison = imbalanced.compare_probabilities("knownspamfeature unknownfeature");
     assert(std::isfinite(comparison.presence_probability));
     assert(std::isfinite(comparison.bernoulli_probability));
