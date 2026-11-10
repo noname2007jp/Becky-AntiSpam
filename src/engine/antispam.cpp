@@ -228,6 +228,45 @@ double BayesianModel::spam_probability(const std::string& text,
     return 1.0 / (1.0 + std::exp(delta));
 }
 
+
+BayesComparison BayesianModel::compare_probabilities(const std::string& text) const {
+    BayesComparison result;
+    result.presence_probability = spam_probability(text, nullptr);
+    if (spam_samples_ + ham_samples_ == 0) return result;
+
+    const double prior = (static_cast<double>(spam_samples_) + 1.0) /
+        (static_cast<double>(spam_samples_ + ham_samples_) + 2.0);
+    double log_spam = std::log(prior);
+    double log_ham = std::log(1.0 - prior);
+    std::unordered_set<std::string> present;
+    for (const auto& token : tokenize(text)) present.insert(token);
+
+    // Bernoulli NB evaluates both presence and absence for each retained
+    // vocabulary feature. Stored counts are document frequencies, so no
+    // training database migration is required for this comparison.
+    result.vocabulary_features = words_.size();
+    for (const auto& entry : words_) {
+        const double p_spam = (static_cast<double>(entry.second.spam) + 1.0) /
+            (static_cast<double>(spam_samples_) + 2.0);
+        const double p_ham = (static_cast<double>(entry.second.ham) + 1.0) /
+            (static_cast<double>(ham_samples_) + 2.0);
+        if (present.find(entry.first) != present.end()) {
+            log_spam += std::log(p_spam);
+            log_ham += std::log(p_ham);
+        } else {
+            log_spam += std::log1p(-p_spam);
+            log_ham += std::log1p(-p_ham);
+        }
+    }
+    result.bernoulli_log_odds = log_spam - log_ham;
+    const double delta = std::clamp(-result.bernoulli_log_odds, -40.0, 40.0);
+    result.bernoulli_probability = 1.0 / (1.0 + std::exp(delta));
+    BayesDiagnostics diagnostics;
+    spam_probability(text, &diagnostics);
+    result.presence_log_odds = diagnostics.log_odds;
+    return result;
+}
+
 Filter::Filter(Settings settings) : settings_(settings) {}
 
 Result Filter::classify(const Message& m, const BayesianModel* model) const {
@@ -378,6 +417,7 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
 
     if (model) {
         r.bayes_probability = model->spam_probability(text, &r.bayes_diagnostics);
+        r.bayes_comparison = model->compare_probabilities(text);
         if (model->spam_samples() >= 5 && model->ham_samples() >= 5) {
             const int bayes_score = static_cast<int>(std::lround(r.bayes_probability * 40.0));
             if (bayes_score > 0) add(r, "bayes.probability", bayes_score, "学習モデルによる迷惑メール確率");
