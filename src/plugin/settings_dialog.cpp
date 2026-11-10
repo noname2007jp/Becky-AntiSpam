@@ -126,9 +126,11 @@ LRESULT CALLBACK dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         control(hwnd, L"BUTTON", L"移行方法", BS_PUSHBUTTON | WS_TABSTOP,
             182, 338, 120, 26, kMigrationId);
         control(hwnd, L"STATIC", L"※ メールの移動・削除は行いません。",
-            0, 18, 405, 450, 24);
-        control(hwnd, L"BUTTON", L"保存", BS_DEFPUSHBUTTON | WS_TABSTOP, 300, 445, 78, 28, kSaveId);
-        control(hwnd, L"BUTTON", L"閉じる", BS_PUSHBUTTON | WS_TABSTOP, 388, 445, 78, 28, kCloseId);
+            0, 18, 398, 450, 24);
+        // Keep the action buttons clear of the client-area bottom edge.
+        // Right-aligned with a 10px gap and approximately 12px bottom margin.
+        control(hwnd, L"BUTTON", L"保存", BS_DEFPUSHBUTTON | WS_TABSTOP, 300, 432, 78, 28, kSaveId);
+        control(hwnd, L"BUTTON", L"閉じる", BS_PUSHBUTTON | WS_TABSTOP, 388, 432, 78, 28, kCloseId);
         load();
         return 0;
     case WM_COMMAND:
