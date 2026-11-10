@@ -6,6 +6,7 @@ Becky! Internet Mail 専用の迷惑メールフィルタープラグインを�
 
 - 対象環境: 64bit Windows上のBecky! Internet Mail Ver.2.83.11（32bit / x86）
 - プラグインDLL: Win32 / x86
+- AI判定エンジン: Windows x64の別プロセス（ローカル名前付きパイプで接続）
 - 処理モード: 自動振り分け / 手動判定を設定で切り替え
 - 判定方式: ルール判定 + ベイジアン学習 + スコアリング
 - プライバシー: メール本文・ヘッダー・学習データは原則ローカル保存。外部送信しない
@@ -38,6 +39,10 @@ Becky!本体は32bitアプリケーションのみ提供されているため、
 - [ ] AI API補助判定（初期OFF・非同期・ユーザー確認後に学習）
 - [ ] 自動振り分け（監査試験後）
 - [x] Windows x86 CIでDLLビルド・テスト・成果物アップロード
+- [x] 32bitプラグイン／64bit AIワーカー間のローカルIPCプロトコル骨格
+- [ ] AIワーカーのONNX Runtime統合・日本語Tokenizer統合
+- [ ] Ham/Spam教師データでFine-tuningしたモデルの評価・同梱
+- [ ] Review判定からAIワーカーへの連携・タイムアウト／障害時フォールバック
 
 ## 仕様・ロードマップ
 
@@ -65,7 +70,8 @@ Becky!本体は32bitアプリケーションのみ提供されているため、
 - `src/parser`: RFC 5322 / MIMEメール解析
 - `src/crypto`: SHA-256
 - `src/pipeline`: 解析・判定・学習の統合
-- `src/plugin`: Becky! SDK アダプター
+- `src/plugin`: Becky! SDK アダプター（Win32/x86）
+- `src/ai`: AIワーカー（x64）とIPCプロトコル
 - `tests`: 単体テスト
 - `config`: 初期ルール
 - `.github/workflows`: Windows CI
@@ -115,3 +121,22 @@ enabled=0
 ### PC移行方法
 
 設定画面の「移行方法」ボタンで手順を確認できます。移行元・移行先のBecky!を完全に終了し、移行元の `BeckyAntiSpam` フォルダー全体をコピーして、移行先PCの設定画面に表示されたデータ保存先へ上書きコピーします。SQLiteはWALモードを使用するため、コピー時にBecky!が起動していないことが重要です。移行先に既存データがある場合は、事前に別の場所へ退避してください。インポート／エクスポート機能は設けず、フォルダーコピーで移行します。
+
+
+### ローカルAIエンジン（開発中）
+
+AI判定はBecky!本体と同じプロセスに組み込まず、64bitの `AntiSpamAI.exe` として分離します。Becky!側DLLは32bitのまま維持し、Windows名前付きパイプでローカル接続します。名前付きパイプはリモート接続を拒否し、メールの外部送信は行いません。
+
+IPCではRFC822生メール全体を渡さず、必要な件名・本文のUTF-8テキストだけを送る設計です。現在のコミットではプロトコルとワーカーの起動基盤を用意した段階であり、AI推論はまだ無効です。ONNXモデル、Tokenizer、学習済み分類ヘッドの検証が完了するまで、既存のルール／Bayes判定を変更しません。
+
+Win32 DLLとx64ワーカーは別々のCMake構成でビルドします。
+
+```powershell
+# Becky! plugin (32-bit)
+cmake -S . -B build -A Win32
+cmake --build build --config Release
+
+# AI worker (64-bit)
+cmake -S . -B build-x64 -A x64
+cmake --build build-x64 --config Release
+```
