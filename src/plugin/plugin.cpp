@@ -8,6 +8,8 @@
 #include "data_paths.hpp"
 
 #include <cstdio>
+#include <fstream>
+#include <vector>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -123,6 +125,45 @@ bool initialize_plugin() {
     g_audit_log = g_data_dir / L"operation.log";
     g_debug_log = g_data_dir / L"test-detail.log";
 
+    // UTF-8 rules: aliases separated by ';', then '|', then allowed domains separated by ';'.
+    // Create a starter file only when absent; never overwrite user edits.
+    const auto brand_file = g_data_dir / L"brand-domains.txt";
+    if (!std::filesystem::exists(brand_file)) {
+        std::ofstream seed(brand_file, std::ios::binary);
+        if (seed) {
+            seed << "# alias1;alias2|allowed-domain1;allowed-domain2\n"
+                 << "American Express;AmericanExpress;アメリカン・エキスプレス;アメックス|americanexpress.com\n";
+        }
+    }
+    std::vector<beckyas::BrandRule> brand_rules;
+    {
+        std::ifstream input(brand_file, std::ios::binary);
+        std::string line;
+        while (std::getline(input, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty() || line[0] == '#') continue;
+            const auto separator = line.find('|');
+            if (separator == std::string::npos) continue;
+            beckyas::BrandRule rule;
+            auto parse_list = [](const std::string& value, std::vector<std::string>& out) {
+                std::size_t start = 0;
+                while (start <= value.size()) {
+                    const auto end = value.find(';', start);
+                    auto item = value.substr(start, end == std::string::npos ? end : end - start);
+                    const auto first = item.find_first_not_of(" \t");
+                    const auto last = item.find_last_not_of(" \t");
+                    if (first != std::string::npos) out.push_back(item.substr(first, last - first + 1));
+                    if (end == std::string::npos) break;
+                    start = end + 1;
+                }
+            };
+            parse_list(line.substr(0, separator), rule.aliases);
+            parse_list(line.substr(separator + 1), rule.allowed_domains);
+            if (!rule.aliases.empty() && !rule.allowed_domains.empty())
+                brand_rules.push_back(std::move(rule));
+        }
+    }
+
     const auto ini = g_data_dir / L"settings.ini";
     g_log_settings.enabled = GetPrivateProfileIntW(L"logging", L"enabled", 1, ini.c_str()) != 0;
     g_log_settings.test_mode = GetPrivateProfileIntW(L"test_mode", L"enabled", 0, ini.c_str()) != 0;
@@ -131,7 +172,9 @@ bool initialize_plugin() {
         (g_log_settings.test_mode ? "on" : "off"));
 
     g_store = std::make_unique<beckyas::SqliteStore>(db_utf8);
-    g_pipeline = std::make_unique<beckyas::MailPipeline>(*g_store);
+    beckyas::Settings classifier_settings;
+    classifier_settings.brand_rules = std::move(brand_rules);
+    g_pipeline = std::make_unique<beckyas::MailPipeline>(*g_store, classifier_settings);
     std::string error;
     if (!g_pipeline->initialize(&error)) {
         operational_log("ERROR", "initialization failed: " + error);
