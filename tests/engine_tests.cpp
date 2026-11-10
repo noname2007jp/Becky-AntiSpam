@@ -96,7 +96,7 @@ int main() {
     amex_spoof.subject = "【American Express】次回のお支払い金額、変更期限をご確認ください";
     amex_spoof.body = "お支払い内容をご確認ください https://stpvpv.asia/login";
     const auto amex_result = brand_filter.classify(amex_spoof);
-    assert(amex_result.verdict == Verdict::Review);
+    assert(amex_result.verdict == Verdict::Spam);
     assert(std::any_of(amex_result.findings.begin(), amex_result.findings.end(),
         [](const Finding& finding) { return finding.rule == "brand.domain_mismatch"; }));
     assert(std::any_of(amex_result.findings.begin(), amex_result.findings.end(),
