@@ -417,7 +417,7 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
 
     if (model) {
         r.bayes_probability = model->spam_probability(text, &r.bayes_diagnostics);
-        r.bayes_comparison = model->compare_probabilities(text);
+        if (settings_.enable_bayes_comparison)\n            r.bayes_comparison = model->compare_probabilities(text);
         if (model->spam_samples() >= 5 && model->ham_samples() >= 5) {
             const int bayes_score = static_cast<int>(std::lround(r.bayes_probability * 40.0));
             if (bayes_score > 0) add(r, "bayes.probability", bayes_score, "学習モデルによる迷惑メール確率");
