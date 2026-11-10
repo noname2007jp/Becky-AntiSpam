@@ -264,6 +264,39 @@ BayesComparison BayesianModel::compare_probabilities(const std::string& text) co
     BayesDiagnostics diagnostics;
     spam_probability(text, &diagnostics);
     result.presence_log_odds = diagnostics.log_odds;
+
+    // Correlation-aware presence comparison:
+    // - smooth each class toward the same corpus-wide token rate, avoiding
+    //   class-size artifacts for tokens seen in only one class;
+    // - average token evidence instead of summing every overlapping Japanese
+    //   bigram as if it were statistically independent.
+    const double total_samples = static_cast<double>(spam_samples_ + ham_samples_);
+    const double prior_log_odds = std::log(prior / (1.0 - prior));
+    constexpr double smoothing_strength = 5.0;
+    double evidence_sum = 0.0;
+    std::size_t known_features = 0;
+    for (const auto& token : present) {
+        const auto it = words_.find(token);
+        if (it == words_.end()) continue;
+        const double spam_docs = static_cast<double>(it->second.spam);
+        const double ham_docs = static_cast<double>(it->second.ham);
+        const double corpus_rate = (spam_docs + ham_docs + 1.0) /
+            (total_samples + 2.0);
+        const double p_spam = (spam_docs + smoothing_strength * corpus_rate) /
+            (static_cast<double>(spam_samples_) + smoothing_strength);
+        const double p_ham = (ham_docs + smoothing_strength * corpus_rate) /
+            (static_cast<double>(ham_samples_) + smoothing_strength);
+        evidence_sum += std::log(p_spam) - std::log(p_ham);
+        ++known_features;
+    }
+    result.correlation_adjusted_features = known_features;
+    result.correlation_adjustment_scale = known_features == 0
+        ? 0.0 : 1.0 / (static_cast<double>(known_features) + smoothing_strength);
+    result.correlation_adjusted_log_odds = prior_log_odds +
+        evidence_sum * result.correlation_adjustment_scale;
+    const double correlation_delta =
+        std::clamp(-result.correlation_adjusted_log_odds, -40.0, 40.0);
+    result.correlation_adjusted_probability = 1.0 / (1.0 + std::exp(correlation_delta));
     return result;
 }
 
