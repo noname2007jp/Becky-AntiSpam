@@ -20,6 +20,17 @@ struct StoreStats {
     std::uint64_t database_bytes = 0;
 };
 
+struct EvaluationStats {
+    std::size_t pending = 0;
+    std::size_t labeled = 0;
+    std::size_t spam_as_ham = 0;
+    std::size_t spam_as_review = 0;
+    std::size_t spam_as_spam = 0;
+    std::size_t ham_as_ham = 0;
+    std::size_t ham_as_review = 0;
+    std::size_t ham_as_spam = 0;
+};
+
 class SqliteStore {
 public:
     explicit SqliteStore(std::string database_path, std::size_t max_vocabulary = 50000);
@@ -42,6 +53,16 @@ public:
     // Evaluation labels are independent from Bayes training.
     bool set_evaluation_label(const std::string& message_hash, bool spam,
                               std::string* error = nullptr);
+    bool record_evaluation_prediction(const std::string& message_hash,
+                                      Verdict predicted, int score,
+                                      double bayes_probability,
+                                      std::size_t ham_samples,
+                                      std::size_t spam_samples,
+                                      std::string* error = nullptr);
+    bool complete_evaluation(const std::string& message_hash, bool spam,
+                             std::string* error = nullptr);
+    bool get_evaluation_stats(EvaluationStats& stats,
+                              std::string* error = nullptr) const;
     bool load_model(BayesianModel& model, std::string* error = nullptr) const;
     bool get_stats(StoreStats& stats, std::string* error = nullptr) const;
 
