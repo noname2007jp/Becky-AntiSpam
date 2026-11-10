@@ -85,6 +85,28 @@ int main() {
     assert(parsed.message.headers.find("spf=pass") == std::string::npos); // untrusted auth header excluded
     assert(parsed.message.headers.find("sender@example.jp") == std::string::npos);
 
+    Settings brand_settings;
+    brand_settings.brand_rules.push_back({
+        {"American Express", "AmericanExpress", "アメックス"},
+        {"americanexpress.com"}
+    });
+    Filter brand_filter(brand_settings);
+    Message amex_spoof;
+    amex_spoof.from = "\"AE ID\" <AmericanExpresst@stpvpv.asia>";
+    amex_spoof.subject = "【American Express】次回のお支払い金額、変更期限をご確認ください";
+    amex_spoof.body = "お支払い内容をご確認ください https://stpvpv.asia/login";
+    const auto amex_result = brand_filter.classify(amex_spoof);
+    assert(amex_result.verdict == Verdict::Review);
+    assert(std::any_of(amex_result.findings.begin(), amex_result.findings.end(),
+        [](const Finding& finding) { return finding.rule == "brand.domain_mismatch"; }));
+    assert(std::any_of(amex_result.findings.begin(), amex_result.findings.end(),
+        [](const Finding& finding) { return finding.rule == "brand.url_domain_mismatch"; }));
+
+    Message amex_legitimate;
+    amex_legitimate.from = "American Express <notice@americanexpress.com>";
+    amex_legitimate.subject = "American Express ご利用明細";
+    assert(brand_filter.classify(amex_legitimate).verdict == Verdict::Ham);
+
     Filter filter;
     // Common Japanese account-action wording plus a link should be escalated
     // to Review, but a generic login word without a link must remain Ham.
