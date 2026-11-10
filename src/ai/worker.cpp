@@ -4,6 +4,7 @@
 #include "ai_protocol.hpp"
 
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <vector>
 
