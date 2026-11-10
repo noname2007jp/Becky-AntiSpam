@@ -42,6 +42,10 @@ std::string without_classification_header(const std::string& raw_message) {
         position = next;
     }
     canonical.append(raw_message, separator, raw_message.size() - separator);
+    // Becky! may retain the final CRLF that was part of the SMTP terminator.
+    while (!canonical.empty() &&
+           (canonical.back() == '\r' || canonical.back() == '\n'))
+        canonical.pop_back();
     return canonical;
 }
 
