@@ -230,8 +230,10 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
 
     // Brand impersonation: compare a matched brand in Subject / From display name
     // with the actual From domain. Allowed domains are exact or proper subdomains.
+    r.brand_rules_checked = settings_.brand_rules.size();
     if (!settings_.brand_rules.empty()) {
         const auto from_domain = extract_from_domain(m.from);
+        r.brand_from_domain_present = !from_domain.empty();
         const auto angle_left = m.from.find('<');
         const auto display_name = angle_left == std::string::npos
             ? std::string{} : trim_copy(m.from.substr(0, angle_left));
@@ -245,9 +247,14 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
                 display_match = display_match || contains(display_name, alias);
             }
             if (!subject_match && !display_match) continue;
+            r.brand_rule_matched = true;
+            r.brand_subject_match = subject_match;
+            r.brand_display_match = display_match;
+            r.brand_url_hosts_checked = url_hosts.size();
             const bool from_allowed = std::any_of(
                 brand.allowed_domains.begin(), brand.allowed_domains.end(),
                 [&](const std::string& domain) { return domain_matches(from_domain, domain); });
+            r.brand_from_allowed = from_allowed;
             if (!from_allowed) {
                 const int mismatch_score = (subject_match && display_match) ? 35 : 30;
                 add(r, "brand.domain_mismatch", mismatch_score,
@@ -261,6 +268,7 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
                     return std::none_of(brand.allowed_domains.begin(), brand.allowed_domains.end(),
                         [&](const std::string& domain) { return domain_matches(host, domain); });
                 });
+            r.brand_url_domain_mismatch = url_mismatch;
             if (url_mismatch)
                 add(r, "brand.url_domain_mismatch", 15,
                     "ブランド名に関連するメール内URLのドメインが許可ドメインと一致しない");
