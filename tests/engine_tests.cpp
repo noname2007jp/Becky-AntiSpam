@@ -9,6 +9,7 @@
 #include <cassert>
 #include <filesystem>
 #include <iostream>
+#include <sqlite3.h>
 
 using namespace beckyas;
 
@@ -293,6 +294,10 @@ int main() {
     assert(reopened.load_model(restored, &error));
     assert(restored.spam_samples() == 1);
     assert(restored.ham_samples() == 2);
+    EvaluationStats reopened_evaluation;
+    assert(reopened.get_evaluation_stats(reopened_evaluation, &error));
+    assert(reopened_evaluation.pending == 1);
+    assert(reopened_evaluation.labeled == 5);
     assert(reopened.compact(3, 1, 365, &error));
     assert(reopened.integrity_check(integrity, &error));
     reopened.close();
@@ -302,6 +307,32 @@ int main() {
     std::filesystem::remove(db_path + "-shm");
     std::filesystem::remove(backup_path);
     std::filesystem::remove(db_path + ".precompact.bak");
+
+    // Existing schema-v2 databases must be upgraded in place to schema v3.
+    const auto migration_path = (temp / "becky_antispam_schema_v2.sqlite3").string();
+    std::filesystem::remove(migration_path);
+    std::filesystem::remove(migration_path + "-wal");
+    std::filesystem::remove(migration_path + "-shm");
+    sqlite3* legacy_db = nullptr;
+    assert(sqlite3_open(migration_path.c_str(), &legacy_db) == SQLITE_OK);
+    assert(sqlite3_exec(legacy_db,
+        "CREATE TABLE evaluation_labels ("
+        "message_hash TEXT PRIMARY KEY,label INTEGER NOT NULL,labeled_utc INTEGER NOT NULL);"
+        "PRAGMA user_version=2;", nullptr, nullptr, nullptr) == SQLITE_OK);
+    assert(sqlite3_close(legacy_db) == SQLITE_OK);
+    {
+        SqliteStore migrated(migration_path);
+        assert(migrated.open(&error));
+        EvaluationStats migrated_evaluation;
+        assert(migrated.get_evaluation_stats(migrated_evaluation, &error));
+        assert(migrated_evaluation.pending == 0);
+        assert(migrated_evaluation.labeled == 0);
+        assert(migrated.integrity_check(integrity, &error));
+        assert(integrity == "ok");
+    }
+    std::filesystem::remove(migration_path);
+    std::filesystem::remove(migration_path + "-wal");
+    std::filesystem::remove(migration_path + "-shm");
 
     const auto capped_path = (temp / "becky_antispam_vocab_cap.sqlite3").string();
     std::filesystem::remove(capped_path);
