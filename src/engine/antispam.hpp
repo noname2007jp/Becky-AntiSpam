@@ -20,11 +20,17 @@ struct Message {
     bool trusted_authentication_results = false;
 };
 
+struct BrandRule {
+    std::vector<std::string> aliases;
+    std::vector<std::string> allowed_domains;
+};
+
 struct Settings {
     int spam_threshold = 60;
     int review_threshold = 30;
     bool enable_authentication_rules = true;
     bool enable_url_rules = true;
+    std::vector<BrandRule> brand_rules;
 };
 
 struct Finding {
