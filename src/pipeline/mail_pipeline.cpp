@@ -10,11 +10,8 @@ namespace {
 
 std::string without_classification_header(const std::string& raw_message) {
     std::size_t separator = raw_message.find("\r\n\r\n");
-    std::size_t separator_size = 4;
-    if (separator == std::string::npos) {
+    if (separator == std::string::npos)
         separator = raw_message.find("\n\n");
-        separator_size = 2;
-    }
     if (separator == std::string::npos) return raw_message;
 
     std::string canonical;
