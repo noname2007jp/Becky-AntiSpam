@@ -102,6 +102,13 @@ int main() {
     assert(std::any_of(amex_result.findings.begin(), amex_result.findings.end(),
         [](const Finding& finding) { return finding.rule == "brand.url_domain_mismatch"; }));
 
+    Message amex_lookalike;
+    amex_lookalike.from = "notice@americanexpresst.asia";
+    amex_lookalike.subject = "American Express お支払い確認";
+    const auto lookalike_result = brand_filter.classify(amex_lookalike);
+    assert(std::any_of(lookalike_result.findings.begin(), lookalike_result.findings.end(),
+        [](const Finding& finding) { return finding.rule == "brand.lookalike_domain"; }));
+
     Message amex_legitimate;
     amex_legitimate.from = "American Express <notice@americanexpress.com>";
     amex_legitimate.subject = "American Express ご利用明細";
