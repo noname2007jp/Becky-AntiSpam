@@ -9,6 +9,7 @@
 #include <cassert>
 #include <filesystem>
 #include <iostream>
+#include <cmath>
 #include <sqlite3.h>
 
 using namespace beckyas;
@@ -202,6 +203,27 @@ int main() {
     }
     assert(model.spam_probability("無料 賞金 当選") >
            model.spam_probability("会議 議事録"));
+
+    // Unknown tokens must be neutral even when the training classes are imbalanced.
+    BayesianModel imbalanced;
+    for (int i = 0; i < 19; ++i)
+        imbalanced.train("knownspamfeature", true);
+    for (int i = 0; i < 131; ++i)
+        imbalanced.train("knownhamfeature", false);
+    const double prior_probability = imbalanced.spam_probability("");
+    BayesDiagnostics unknown_diagnostics;
+    const double unknown_probability =
+        imbalanced.spam_probability("neverseenword anotherunknownword", &unknown_diagnostics);
+    assert(std::abs(unknown_probability - prior_probability) < 1e-12);
+    assert(unknown_diagnostics.total_tokens == 2);
+    assert(unknown_diagnostics.known_tokens == 0);
+    assert(unknown_diagnostics.unknown_tokens == 2);
+    assert(unknown_diagnostics.spam_evidence_tokens == 0);
+    assert(unknown_diagnostics.ham_evidence_tokens == 0);
+    assert(std::abs(unknown_diagnostics.log_odds -
+        std::log(prior_probability / (1.0 - prior_probability))) < 1e-12);
+    assert(imbalanced.spam_probability("knownspamfeature") > prior_probability);
+    assert(imbalanced.spam_probability("knownhamfeature") < prior_probability);
 
     BayesianModel bounded(3);
     bounded.train("alpha beta gamma", true);
