@@ -181,6 +181,8 @@ bool initialize_plugin() {
     g_store = std::make_unique<beckyas::SqliteStore>(db_utf8);
     beckyas::Settings classifier_settings;
     classifier_settings.brand_rules = std::move(brand_rules);
+    operational_log("INFO", std::string("brand rules loaded count=") +
+        std::to_string(classifier_settings.brand_rules.size()));
     g_pipeline = std::make_unique<beckyas::MailPipeline>(*g_store, classifier_settings);
     std::string error;
     if (!g_pipeline->initialize(&error)) {
@@ -291,6 +293,15 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
         for (const auto& warning : parsed.warnings) {
             test_log("WARN", std::string("parse-warning ") + warning);
         }
+        test_log("INFO", std::string("brand-match rules_checked=") +
+            std::to_string(result.brand_rules_checked) +
+            " matched=" + (result.brand_rule_matched ? "yes" : "no") +
+            " subject_match=" + (result.brand_subject_match ? "yes" : "no") +
+            " display_match=" + (result.brand_display_match ? "yes" : "no") +
+            " from_domain_present=" + (result.brand_from_domain_present ? "yes" : "no") +
+            " from_allowed=" + (result.brand_from_allowed ? "yes" : "no") +
+            " url_hosts_checked=" + std::to_string(result.brand_url_hosts_checked) +
+            " url_domain_mismatch=" + (result.brand_url_domain_mismatch ? "yes" : "no"));
         test_log("INFO", std::string("classification verdict=") + verdict_name +
             " score=" + std::to_string(result.score) +
             " bayes_probability=" + std::to_string(bayes_percent) + "%" +
