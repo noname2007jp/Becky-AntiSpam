@@ -51,7 +51,7 @@ int WINAPI BKC_OnRetrieve(LPCTSTR lpMessage, LPCTSTR lpMailID);
 
 ### 手動判定用のメニュー
 
-`BKC_OnMenuInit` でメニューを初期化し、`CBeckyAPI::RegisterCommand` でコマンドを登録できる。選択メールは `GetNextMail(..., TRUE)` で列挙できる。
+`BKC_OnMenuInit` の `BKC_MENU_LISTVIEW`（値 `1`）はメール一覧のコンテキストメニューである。SDKの `BKA_RegisterCommand` にコールバックを登録し、受け取った `HMENU` に `AppendMenu` で項目を追加できる。コマンドコールバックからは `GetNextMail(..., TRUE)` で選択メールを列挙し、`GetSource` で取得したソースを既存の学習パイプラインへ渡す。現行実装では右クリックのHam/Spam項目と、設定可能なキーボード操作が同じ一括学習関数を利用する。
 
 ## 確認できたAPI
 
@@ -109,12 +109,11 @@ int WINAPI BKC_OnRetrieve(LPCTSTR lpMessage, LPCTSTR lpMailID);
 
 ## 次の実装順
 
-1. Becky! 2.83.11（x86）とWin32 DLLの組み合わせで実機ロードを確認。
-2. `BKC_OnPlugInInfo` / `BKC_OnStart` / `BKC_OnExit` がBecky!から呼び出されることを確認。
-3. `BKC_OnBeforeFilter2` の発火、メール受信時間、標準フィルターとの共存を監査モードで確認。
-4. 判定結果をBecky!画面から確認できる表示・手動メニューを実装。
-5. 手動学習・選択メール一括処理を実装。
-6. 自動移動は誤判定率・実機試験・明示設定を満たした後に別途実装。削除機能は追加しない。
+1. Becky! 2.83.11（x86）で右クリックメニューの表示・コマンド実行を実機確認。
+2. 右クリックから単一メール・複数メールのHam/Spam学習、再分類、重複防止を確認。
+3. メニュー以外のウィンドウで誤操作が発生しないことを確認。
+4. 判定結果・理由・スコアをBecky!画面から確認できる表示機能を検討。
+5. 自動移動は誤判定率・実機試験・明示設定を満たした後に別途実装。削除機能は追加しない。
 
 
 ## 対象Becky!バージョン
