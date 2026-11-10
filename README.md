@@ -84,7 +84,7 @@ DLLは `build/Release/BeckyAntiSpam.dll` に生成されます。GitHub Actions�
 
 設定画面はBecky!本体の `ツール → プラグインの設定 → Becky AntiSpam` から開きます。設定画面には実際に使用しているデータ保存先が表示され、「フォルダーを開く」と「移行方法」を利用できます。変更できる設定は通常ログ／詳細テストログのON/OFFです。
 
-ログ設定は、設定画面に表示されるデータ保存先の `settings.ini` で管理します。
+ログ設定は、設定画面に表示されるデータ保存先の `settings.ini` で管理します。ブランド照合ルールは同じフォルダーの `brand-domains.txt` で管理します。
 
 ```ini
 [logging]
