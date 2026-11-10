@@ -97,6 +97,14 @@ int main() {
     amex_spoof.body = "お支払い内容をご確認ください https://stpvpv.asia/login";
     const auto amex_result = brand_filter.classify(amex_spoof);
     assert(amex_result.verdict == Verdict::Spam);
+    assert(amex_result.brand_rules_checked == 1);
+    assert(amex_result.brand_rule_matched);
+    assert(amex_result.brand_subject_match);
+    assert(amex_result.brand_display_match);
+    assert(amex_result.brand_from_domain_present);
+    assert(!amex_result.brand_from_allowed);
+    assert(amex_result.brand_url_hosts_checked == 1);
+    assert(amex_result.brand_url_domain_mismatch);
     assert(std::any_of(amex_result.findings.begin(), amex_result.findings.end(),
         [](const Finding& finding) { return finding.rule == "brand.domain_mismatch"; }));
     assert(std::any_of(amex_result.findings.begin(), amex_result.findings.end(),
@@ -112,7 +120,15 @@ int main() {
     Message amex_legitimate;
     amex_legitimate.from = "American Express <notice@americanexpress.com>";
     amex_legitimate.subject = "American Express ご利用明細";
-    assert(brand_filter.classify(amex_legitimate).verdict == Verdict::Ham);
+    const auto amex_legitimate_result = brand_filter.classify(amex_legitimate);
+    assert(amex_legitimate_result.verdict == Verdict::Ham);
+    assert(amex_legitimate_result.brand_rules_checked == 1);
+    assert(amex_legitimate_result.brand_rule_matched);
+    assert(amex_legitimate_result.brand_subject_match);
+    assert(amex_legitimate_result.brand_display_match);
+    assert(amex_legitimate_result.brand_from_domain_present);
+    assert(amex_legitimate_result.brand_from_allowed);
+    assert(!amex_legitimate_result.brand_url_domain_mismatch);
 
     Filter filter;
     // Common Japanese account-action wording plus a link should be escalated
