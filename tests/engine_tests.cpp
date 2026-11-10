@@ -37,6 +37,7 @@ int main() {
         "From: Example Sender <sender@example.jp>\r\n"
         "Return-Path: <bounce@example.jp>\r\n"
         "Subject: =?UTF-8?Q?Hello=20World?=\r\n"
+        "List-Unsubscribe: <https://example.jp/unsubscribe>\r\n"
         "X-Long: first\r\n\tsecond\r\n"
         "Authentication-Results: mx.example; spf=pass; dkim=pass; dmarc=fail\r\n"
         "MIME-Version: 1.0\r\n"
@@ -70,8 +71,8 @@ int main() {
     assert(parsed.message.dkim_result.empty());
     assert(parsed.message.dmarc_result.empty());
     assert(parsed.headers.size() >= 7);
-    assert(parsed.headers[3].name == "x-long");
-    assert(parsed.headers[3].value == "first second");
+    assert(parsed.headers[4].name == "x-long");
+    assert(parsed.headers[4].value == "first second");
     assert(parsed.attachments.size() == 1);
     assert(parsed.attachments[0].filename == "sample.bin");
     assert(parsed.mime_parts == 3);
@@ -80,6 +81,32 @@ int main() {
     assert(parsed_classifier_text.find("Hello World") != std::string::npos);
     assert(parsed_classifier_text.find("Hello mail!") != std::string::npos);
     assert(parsed_classifier_text.find("sender@example.jp") == std::string::npos); // no sender address in Bayes corpus
+    assert(parsed.message.headers.find("https://example.jp/unsubscribe") != std::string::npos);
+    assert(parsed.message.headers.find("spf=pass") == std::string::npos); // untrusted auth header excluded
+    assert(parsed.message.headers.find("sender@example.jp") == std::string::npos);
+
+    Filter filter;
+    // Common Japanese account-action wording plus a link should be escalated
+    // to Review, but a generic login word without a link must remain Ham.
+    Message generic_phishing;
+    generic_phishing.subject = "アカウント情報の確認";
+    generic_phishing.body = "アカウント情報を更新してください。こちらから確認できます https://example.invalid/login";
+    const auto generic_result = filter.classify(generic_phishing);
+    assert(generic_result.score >= 30);
+    assert(generic_result.verdict == Verdict::Review);
+    Message ordinary_login_notice;
+    ordinary_login_notice.subject = "社内システムのログイン方法";
+    ordinary_login_notice.body = "ログイン方法を案内します。";
+    assert(filter.classify(ordinary_login_notice).verdict == Verdict::Ham);
+
+    // www. URL markers must be recognized (the previous expression escaped
+    // the backslash rather than the dot).
+    Message multiple_www_urls;
+    multiple_www_urls.body =
+        "www.example1.invalid www.example2.invalid www.example3.invalid www.example4.invalid";
+    const auto multiple_url_result = filter.classify(multiple_www_urls);
+    assert(std::any_of(multiple_url_result.findings.begin(), multiple_url_result.findings.end(),
+        [](const Finding& finding) { return finding.rule == "url.multiple"; }));
 
 
     ParseLimits tiny_limits;
