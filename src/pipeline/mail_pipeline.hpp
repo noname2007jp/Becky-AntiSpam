@@ -29,8 +29,9 @@ public:
                       ParsedMail* parsed = nullptr,
                       std::string* error = nullptr);
 
-    // Persist the pre-training prediction using a content-only classifier hash.
-    bool record_prediction(const Message& message, const Result& result,
+    // Persist the pre-training prediction using a canonical raw-message hash.
+    // The plugin's own classification header is excluded from this hash.
+    bool record_prediction(const std::string& raw_message, const Result& result,
                            std::string* error = nullptr);
     bool get_evaluation_stats(EvaluationStats& stats,
                               std::string* error = nullptr) const;
