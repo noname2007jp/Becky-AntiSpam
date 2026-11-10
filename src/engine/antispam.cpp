@@ -22,6 +22,41 @@ bool contains_any(const std::string& haystack, const std::vector<std::string>& n
         return contains(haystack, needle);
     });
 }
+std::string trim_copy(const std::string& value) {
+    const auto first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return {};
+    const auto last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
+std::string extract_from_domain(const std::string& from) {
+    std::string address = from;
+    const auto left = address.find('<');
+    const auto right = address.find('>', left == std::string::npos ? 0 : left + 1);
+    if (left != std::string::npos && right != std::string::npos && right > left)
+        address = address.substr(left + 1, right - left - 1);
+    const auto at = address.rfind('@');
+    if (at == std::string::npos) return {};
+    return lower(trim_copy(address.substr(at + 1)));
+}
+bool domain_matches(const std::string& host, const std::string& allowed) {
+    const auto h = lower(host);
+    const auto a = lower(allowed);
+    return !a.empty() && (h == a ||
+        (h.size() > a.size() && h.compare(h.size() - a.size(), a.size(), a) == 0 &&
+         h[h.size() - a.size() - 1] == '.'));
+}
+std::vector<std::string> extract_url_hosts(const std::string& text) {
+    static const std::regex url_regex(
+        R"((?:https?://|www\.)([^\s/<>\"'\)\]]+))", std::regex::icase);
+    std::vector<std::string> hosts;
+    for (std::sregex_iterator it(text.begin(), text.end(), url_regex), end; it != end; ++it) {
+        auto host = lower((*it)[1].str());
+        while (!host.empty() && (host.back() == '.' || host.back() == ',' ||
+               host.back() == ';' || host.back() == ':')) host.pop_back();
+        if (!host.empty()) hosts.push_back(std::move(host));
+    }
+    return hosts;
+}
 std::size_t count_url_markers(const std::string& text) {
     static const std::regex url_pattern(R"((https?://|www\.))", std::regex::icase);
     return static_cast<std::size_t>(std::distance(
@@ -148,6 +183,43 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
         if (at1 != std::string::npos && at2 != std::string::npos &&
             from.substr(at1 + 1) != path.substr(at2 + 1))
             add(r, "header.return_path_mismatch", 10, "FromとReturn-Pathのドメインが不一致");
+    }
+
+    // Brand impersonation: compare a matched brand in Subject / From display name
+    // with the actual From domain. Allowed domains are exact or proper subdomains.
+    if (!settings_.brand_rules.empty()) {
+        const auto from_domain = extract_from_domain(m.from);
+        const auto angle_left = m.from.find('<');
+        const auto display_name = angle_left == std::string::npos
+            ? std::string{} : trim_copy(m.from.substr(0, angle_left));
+        const auto url_hosts = extract_url_hosts(m.body);
+        for (const auto& brand : settings_.brand_rules) {
+            bool subject_match = false;
+            bool display_match = false;
+            for (const auto& alias : brand.aliases) {
+                if (alias.empty()) continue;
+                subject_match = subject_match || contains(m.subject, alias);
+                display_match = display_match || contains(display_name, alias);
+            }
+            if (!subject_match && !display_match) continue;
+            const bool from_allowed = std::any_of(
+                brand.allowed_domains.begin(), brand.allowed_domains.end(),
+                [&](const std::string& domain) { return domain_matches(from_domain, domain); });
+            if (!from_allowed) {
+                const int mismatch_score = (subject_match && display_match) ? 35 : 30;
+                add(r, "brand.domain_mismatch", mismatch_score,
+                    "ブランド名とFromドメインが一致しない");
+            }
+            const bool url_mismatch = !url_hosts.empty() &&
+                std::any_of(url_hosts.begin(), url_hosts.end(), [&](const std::string& host) {
+                    return std::none_of(brand.allowed_domains.begin(), brand.allowed_domains.end(),
+                        [&](const std::string& domain) { return domain_matches(host, domain); });
+                });
+            if (url_mismatch)
+                add(r, "brand.url_domain_mismatch", 15,
+                    "ブランド名に関連するメール内URLのドメインが許可ドメインと一致しない");
+            break;
+        }
     }
 
     const bool account_lure = contains_any(text, {
