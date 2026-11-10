@@ -50,11 +50,20 @@ struct BayesDiagnostics {
     double log_odds = 0.0;
 };
 
+struct BayesComparison {
+    double presence_probability = 0.0;
+    double bernoulli_probability = 0.0;
+    double presence_log_odds = 0.0;
+    double bernoulli_log_odds = 0.0;
+    std::size_t vocabulary_features = 0;
+};
+
 struct Result {
     Verdict verdict = Verdict::Ham;
     int score = 0;
     double bayes_probability = 0.0;
     BayesDiagnostics bayes_diagnostics;
+    BayesComparison bayes_comparison;
     // Privacy-safe diagnostics: booleans/counts only; never retain matched text or domains.
     std::size_t brand_rules_checked = 0;
     bool brand_rule_matched = false;
@@ -72,6 +81,8 @@ public:
     explicit BayesianModel(std::size_t max_vocabulary = 50000);
     void train(const std::string& text, bool spam);
     double spam_probability(const std::string& text, BayesDiagnostics* diagnostics = nullptr) const;
+    // Offline comparison only; does not change the active classification result.
+    BayesComparison compare_probabilities(const std::string& text) const;
     std::size_t spam_samples() const noexcept { return spam_samples_; }
     std::size_t ham_samples() const noexcept { return ham_samples_; }
     std::size_t vocabulary_size() const noexcept { return words_.size(); }
