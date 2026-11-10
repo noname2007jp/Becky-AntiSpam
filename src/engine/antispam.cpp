@@ -38,6 +38,48 @@ std::string extract_from_domain(const std::string& from) {
     if (at == std::string::npos) return {};
     return lower(trim_copy(address.substr(at + 1)));
 }
+std::string compact_ascii(const std::string& value) {
+    std::string out;
+    for (unsigned char c : lower(value)) {
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
+            out.push_back(static_cast<char>(c));
+    }
+    return out;
+}
+std::size_t edit_distance(const std::string& a, const std::string& b) {
+    std::vector<std::size_t> previous(b.size() + 1), current(b.size() + 1);
+    for (std::size_t j = 0; j <= b.size(); ++j) previous[j] = j;
+    for (std::size_t i = 1; i <= a.size(); ++i) {
+        current[0] = i;
+        for (std::size_t j = 1; j <= b.size(); ++j) {
+            current[j] = std::min({previous[j] + 1, current[j - 1] + 1,
+                previous[j - 1] + (a[i - 1] == b[j - 1] ? 0u : 1u)});
+        }
+        previous.swap(current);
+    }
+    return previous[b.size()];
+}
+bool looks_like_brand_domain(const std::string& host, const std::vector<std::string>& aliases) {
+    std::vector<std::string> labels;
+    std::size_t start = 0;
+    while (start <= host.size()) {
+        const auto end = host.find('.', start);
+        const auto label = compact_ascii(host.substr(start,
+            end == std::string::npos ? end : end - start));
+        if (!label.empty()) labels.push_back(label);
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    for (const auto& alias : aliases) {
+        const auto key = compact_ascii(alias);
+        if (key.size() < 6) continue;
+        for (const auto& label : labels) {
+            if (label.find(key) != std::string::npos) return true;
+            if (label.size() >= 6 && edit_distance(label, key) <= 2) return true;
+        }
+    }
+    return false;
+}
 bool domain_matches(const std::string& host, const std::string& allowed) {
     const auto h = lower(host);
     const auto a = lower(allowed);
@@ -210,6 +252,9 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
                 add(r, "brand.domain_mismatch", mismatch_score,
                     "ブランド名とFromドメインが一致しない");
             }
+            if (!from_allowed && looks_like_brand_domain(from_domain, brand.aliases))
+                add(r, "brand.lookalike_domain", 15,
+                    "Fromドメインがブランド名に類似している");
             const bool url_mismatch = !url_hosts.empty() &&
                 std::any_of(url_hosts.begin(), url_hosts.end(), [&](const std::string& host) {
                     return std::none_of(brand.allowed_domains.begin(), brand.allowed_domains.end(),
