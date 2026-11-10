@@ -235,6 +235,29 @@ int main() {
     // from the presence-only baseline.
     assert(std::abs(comparison.bernoulli_probability -
         comparison.presence_probability) > 1e-9);
+    assert(std::isfinite(comparison.correlation_adjusted_probability));
+    assert(comparison.correlation_adjusted_features == 1);
+    assert(comparison.correlation_adjustment_scale > 0.0);
+    // The correlation-aware estimate is deliberately less extreme than the
+    // raw presence model for a single learned feature.
+    assert(comparison.correlation_adjusted_probability <
+           comparison.presence_probability);
+
+    // A token observed only in the larger Ham class must not become Spam
+    // evidence merely because the class denominators differ.
+    const double balanced_prior = imbalanced.spam_probability("");
+    const auto ham_only_comparison =
+        imbalanced.compare_probabilities("knownhamfeature");
+    assert(ham_only_comparison.correlation_adjusted_probability < balanced_prior);
+    assert(ham_only_comparison.correlation_adjusted_features == 1);
+
+    // Repeating an identical message must not multiply evidence: the tokenizer
+    // returns unique features and the adjusted estimate is deterministic.
+    const auto once = imbalanced.compare_probabilities("knownspamfeature");
+    const auto repeated = imbalanced.compare_probabilities(
+        "knownspamfeature knownspamfeature knownspamfeature");
+    assert(std::abs(once.correlation_adjusted_probability -
+        repeated.correlation_adjusted_probability) < 1e-12);
 
     BayesianModel bounded(3);
     bounded.train("alpha beta gamma", true);
