@@ -312,6 +312,8 @@ int main() {
     assert(ham_only_comparison.correlation_adjusted_probability < balanced_prior);
     assert(ham_only_comparison.correlation_adjusted_features == 1);
 
+    const auto once = imbalanced.compare_probabilities("knownspamfeature");
+
     // A minority-class prior can keep posterior odds below zero even when
     // the observed feature itself strongly favors Spam. Preserve that lift
     // separately so the symbol comparison can award bounded evidence points.
@@ -334,7 +336,6 @@ int main() {
 
     // Repeating an identical message must not multiply evidence: the tokenizer
     // returns unique features and the adjusted estimate is deterministic.
-    const auto once = imbalanced.compare_probabilities("knownspamfeature");
     const auto repeated = imbalanced.compare_probabilities(
         "knownspamfeature knownspamfeature knownspamfeature");
     assert(std::abs(once.correlation_adjusted_probability -
