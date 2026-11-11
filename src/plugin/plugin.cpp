@@ -42,7 +42,8 @@ struct LogSettings {
 std::mutex g_mutex;
 std::unique_ptr<beckyas::SqliteStore> g_store;
 std::unique_ptr<beckyas::MailPipeline> g_pipeline;
-std::filesystem::path g_data_dir, g_audit_log, g_debug_log;
+std::filesystem::path g_data_dir, g_audit_log, g_debug_log, g_summary_log;
+std::uint64_t g_test_case_sequence = 0;
 LogSettings g_log_settings;
 using BeckyAllocFn = LPVOID (WINAPI*)(DWORD);
 BeckyAllocFn g_becky_alloc = nullptr;
@@ -153,6 +154,7 @@ bool initialize_plugin() {
     db_utf8.pop_back();
     g_audit_log = g_data_dir / L"operation.log";
     g_debug_log = g_data_dir / L"test-detail.log";
+    g_summary_log = g_data_dir / L"test-summary.log";
 
     // UTF-8 rules: aliases separated by ';', then '|', then allowed domains separated by ';'.
     // Create a starter file only when absent; never overwrite user edits.
@@ -498,6 +500,47 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
             " symbol_verdict=" + (result.symbol_comparison.verdict == beckyas::Verdict::Spam
                 ? "Spam" : result.symbol_comparison.verdict == beckyas::Verdict::Review
                 ? "Review" : "Ham"));
+        // One compact, privacy-safe record per analyzed message for sharing.
+        // Do not include message IDs, addresses, domains, subjects, URLs, or tokens.
+        if (g_log_settings.enabled && g_log_settings.test_mode) {
+            ++g_test_case_sequence;
+            const auto corr_percent = static_cast<int>(
+                result.bayes_comparison.correlation_adjusted_probability * 100.0 + 0.5);
+            const auto bernoulli_percent = static_cast<int>(
+                result.bayes_comparison.bernoulli_probability * 100.0 + 0.5);
+            const char* symbol_verdict = result.symbol_comparison.verdict == beckyas::Verdict::Spam
+                ? "Spam" : result.symbol_comparison.verdict == beckyas::Verdict::Review
+                ? "Review" : "Ham";
+            log_line(g_summary_log, "SUMMARY",
+                std::string("format=1 case=") + std::to_string(g_test_case_sequence) +
+                " verdict=" + verdict_name +
+                " score=" + std::to_string(result.score) +
+                " bayes=" + std::to_string(bayes_percent) +
+                " bayes_tokens=" + std::to_string(result.bayes_diagnostics.total_tokens) +
+                " bayes_known=" + std::to_string(result.bayes_diagnostics.known_tokens) +
+                " bayes_unknown=" + std::to_string(result.bayes_diagnostics.unknown_tokens) +
+                " bayes_bernoulli=" + std::to_string(bernoulli_percent) +
+                " bayes_corr=" + std::to_string(corr_percent) +
+                " bayes_corr_evidence=" + std::to_string(result.bayes_comparison.correlation_adjusted_evidence_log_odds) +
+                " bayes_corr_features=" + std::to_string(result.bayes_comparison.correlation_adjusted_features) +
+                " symbol_score=" + std::to_string(result.symbol_comparison.score) +
+                " symbol_verdict=" + symbol_verdict +
+                " symbol_auth=" + std::to_string(result.symbol_comparison.authentication_score) +
+                " symbol_header=" + std::to_string(result.symbol_comparison.header_score) +
+                " symbol_brand=" + std::to_string(result.symbol_comparison.brand_score) +
+                " symbol_content=" + std::to_string(result.symbol_comparison.content_score) +
+                " symbol_url=" + std::to_string(result.symbol_comparison.url_score) +
+                " symbol_bayes=" + std::to_string(result.symbol_comparison.bayes_score) +
+                " symbols=" + std::to_string(result.symbol_comparison.symbol_count) +
+                " findings=" + std::to_string(result.findings.size()) +
+                " urls=" + std::to_string(parsed_url_count) +
+                " mime_parts=" + std::to_string(parsed.mime_parts) +
+                " attachments=" + std::to_string(parsed.attachments.size()) +
+                " parse_warnings=" + std::to_string(parsed.warnings.size()) +
+                " ham_samples=" + std::to_string(model.ham_samples()) +
+                " spam_samples=" + std::to_string(model.spam_samples()),
+                kTestLogLimit);
+        }
         for (const auto& finding : result.findings) {
             test_log("INFO", std::string("finding rule=") + finding.rule +
                 " score=" + (finding.score >= 0 ? "+" : "") +
