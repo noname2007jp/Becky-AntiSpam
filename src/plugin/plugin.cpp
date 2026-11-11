@@ -217,6 +217,7 @@ bool initialize_plugin() {
     beckyas::Settings classifier_settings;
     classifier_settings.brand_rules = std::move(brand_rules);
     classifier_settings.enable_bayes_comparison = g_log_settings.test_mode;
+    classifier_settings.enable_symbol_comparison = g_log_settings.test_mode;
     operational_log("INFO", std::string("brand rules loaded count=") +
         std::to_string(classifier_settings.brand_rules.size()));
     g_pipeline = std::make_unique<beckyas::MailPipeline>(*g_store, classifier_settings);
@@ -476,7 +477,18 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
                 std::to_string(result.bayes_comparison.vocabulary_features) +
             " ham_samples=" + std::to_string(model.ham_samples()) +
             " spam_samples=" + std::to_string(model.spam_samples()) +
-            " findings=" + std::to_string(result.findings.size()));
+            " findings=" + std::to_string(result.findings.size()) +
+            " symbol_score=" + std::to_string(result.symbol_comparison.score) +
+            " symbol_auth=" + std::to_string(result.symbol_comparison.authentication_score) +
+            " symbol_header=" + std::to_string(result.symbol_comparison.header_score) +
+            " symbol_brand=" + std::to_string(result.symbol_comparison.brand_score) +
+            " symbol_content=" + std::to_string(result.symbol_comparison.content_score) +
+            " symbol_url=" + std::to_string(result.symbol_comparison.url_score) +
+            " symbol_bayes=" + std::to_string(result.symbol_comparison.bayes_score) +
+            " symbol_count=" + std::to_string(result.symbol_comparison.symbol_count) +
+            " symbol_verdict=" + (result.symbol_comparison.verdict == beckyas::Verdict::Spam
+                ? "Spam" : result.symbol_comparison.verdict == beckyas::Verdict::Review
+                ? "Review" : "Ham"));
         for (const auto& finding : result.findings) {
             test_log("INFO", std::string("finding rule=") + finding.rule +
                 " score=" + (finding.score >= 0 ? "+" : "") +
