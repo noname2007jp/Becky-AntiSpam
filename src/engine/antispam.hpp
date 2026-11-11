@@ -71,6 +71,8 @@ struct BayesComparison {
     double bernoulli_log_odds = 0.0;
     double correlation_adjusted_probability = 0.0;
     double correlation_adjusted_log_odds = 0.0;
+    // Evidence lift excludes the corpus prior; useful when Spam is a minority class.
+    double correlation_adjusted_evidence_log_odds = 0.0;
     double correlation_adjustment_scale = 0.0;
     std::size_t correlation_adjusted_features = 0;
     std::size_t vocabulary_features = 0;
