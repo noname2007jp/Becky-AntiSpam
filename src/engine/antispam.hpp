@@ -55,6 +55,16 @@ struct SymbolScoreComparison {
     std::size_t symbol_count = 0;
 };
 
+// A second, deliberately experimental profile for offline score comparison.
+// It is diagnostic only and is not persisted as an evaluation prediction.
+struct SymbolScoreExperiment {
+    int score = 0;
+    Verdict verdict = Verdict::Ham;
+    int content_score = 0;
+    int url_score = 0;
+    int bayes_score = 0;
+};
+
 struct BayesDiagnostics {
     std::size_t total_tokens = 0;
     std::size_t known_tokens = 0;
@@ -85,6 +95,7 @@ struct Result {
     BayesDiagnostics bayes_diagnostics;
     BayesComparison bayes_comparison;
     SymbolScoreComparison symbol_comparison;
+    SymbolScoreExperiment symbol_experiment;
     // Privacy-safe diagnostics: booleans/counts only; never retain matched text or domains.
     std::size_t brand_rules_checked = 0;
     bool brand_rule_matched = false;
