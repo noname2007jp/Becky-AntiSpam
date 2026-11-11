@@ -20,6 +20,8 @@ struct StoreStats {
     std::uint64_t database_bytes = 0;
 };
 
+// Counts compare the saved receive-time prediction with the user's later label.
+// Symbol fields include only rows that contain a comparison_verdict (new test-mode predictions).
 struct EvaluationStats {
     std::size_t pending = 0;
     std::size_t labeled = 0;
@@ -60,6 +62,7 @@ public:
     // Evaluation labels are independent from Bayes training.
     bool set_evaluation_label(const std::string& message_hash, bool spam,
                               std::string* error = nullptr);
+    // symbol_verdict/score are comparison-only values; they never affect active filtering.
     bool record_evaluation_prediction(const std::string& message_hash,
                                       Verdict predicted, int score,
                                       double bayes_probability,
