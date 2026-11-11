@@ -422,6 +422,7 @@ int main() {
     assert(reopened.get_evaluation_stats(reopened_evaluation, &error));
     assert(reopened_evaluation.pending == 1);
     assert(reopened_evaluation.labeled == 5);
+    assert(reopened_evaluation.symbol_labeled == 5);
     assert(reopened.compact(3, 1, 365, &error));
     assert(reopened.integrity_check(integrity, &error));
     reopened.close();
@@ -454,6 +455,16 @@ int main() {
         assert(migrated.integrity_check(integrity, &error));
         assert(integrity == "ok");
     }
+    {
+        sqlite3* migrated_db = nullptr;
+        assert(sqlite3_open(migration_path.c_str(), &migrated_db) == SQLITE_OK);
+        sqlite3_stmt* version = nullptr;
+        assert(sqlite3_prepare_v2(migrated_db, "PRAGMA user_version", -1, &version, nullptr) == SQLITE_OK);
+        assert(sqlite3_step(version) == SQLITE_ROW);
+        assert(sqlite3_column_int(version, 0) == 4);
+        sqlite3_finalize(version);
+        sqlite3_close(migrated_db);
+    }
     std::filesystem::remove(migration_path);
     std::filesystem::remove(migration_path + "-wal");
     std::filesystem::remove(migration_path + "-shm");
@@ -482,7 +493,10 @@ int main() {
     std::filesystem::remove(pipeline_path + "-shm");
     {
         SqliteStore pipeline_store(pipeline_path);
-        MailPipeline pipeline(pipeline_store);
+        Settings evaluation_settings;
+        evaluation_settings.enable_bayes_comparison = true;
+        evaluation_settings.enable_symbol_comparison = true;
+        MailPipeline pipeline(pipeline_store, evaluation_settings);
         assert(pipeline.initialize(&error));
         for (int i = 0; i < 6; ++i) {
             const auto spam_mail =
@@ -526,6 +540,7 @@ int main() {
         assert(pipeline.get_evaluation_stats(pipeline_evaluation, &error));
         assert(pipeline_evaluation.pending == 0);
         assert(pipeline_evaluation.labeled == 2);
+        assert(pipeline_evaluation.symbol_labeled == 2);
         assert(pipeline_evaluation.spam_as_spam + pipeline_evaluation.spam_as_review +
                pipeline_evaluation.spam_as_ham == 1);
         assert(pipeline_evaluation.ham_as_ham + pipeline_evaluation.ham_as_review +
