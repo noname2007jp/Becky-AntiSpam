@@ -242,6 +242,12 @@ int main() {
     assert(candidate_symbol_result.symbol_comparison.bayes_score <= 20);
     assert(candidate_symbol_result.symbol_comparison.score <= 100);
     assert(candidate_symbol_result.symbol_comparison.verdict == Verdict::Spam);
+    assert(candidate_symbol_result.symbol_experiment.score >=
+           candidate_symbol_result.symbol_comparison.score);
+    assert(candidate_symbol_result.symbol_experiment.content_score <= 35);
+    assert(candidate_symbol_result.symbol_experiment.url_score <= 25);
+    assert(candidate_symbol_result.symbol_experiment.bayes_score <= 30);
+    assert(candidate_symbol_result.symbol_experiment.verdict == Verdict::Spam);
 
     BayesianModel model;
     for (int i = 0; i < 6; ++i) {
