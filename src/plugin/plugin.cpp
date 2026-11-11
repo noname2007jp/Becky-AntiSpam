@@ -485,6 +485,14 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
                 std::to_string(static_cast<int>(result.bayes_comparison.bernoulli_probability * 100.0 + 0.5)) + "%" +
             " bayes_bernoulli_log_odds=" +
                 std::to_string(result.bayes_comparison.bernoulli_log_odds) +
+            " bayes_bernoulli_present_features=" +
+                std::to_string(result.bayes_comparison.bernoulli_present_features) +
+            " bayes_bernoulli_absent_features=" +
+                std::to_string(result.bayes_comparison.bernoulli_absent_features) +
+            " bayes_bernoulli_present_log_odds=" +
+                std::to_string(result.bayes_comparison.bernoulli_present_log_odds) +
+            " bayes_bernoulli_absent_log_odds=" +
+                std::to_string(result.bayes_comparison.bernoulli_absent_log_odds) +
             " bayes_corr_probability=" +
                 std::to_string(static_cast<int>(
                     result.bayes_comparison.correlation_adjusted_probability * 100.0 + 0.5)) + "%" +
