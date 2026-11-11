@@ -331,14 +331,16 @@ BayesComparison BayesianModel::compare_probabilities(const std::string& text) co
 
     const double prior = (static_cast<double>(spam_samples_) + 1.0) /
         (static_cast<double>(spam_samples_ + ham_samples_) + 2.0);
-    double log_spam = std::log(prior);
-    double log_ham = std::log(1.0 - prior);
+    const double prior_log_odds = std::log(prior / (1.0 - prior));
+    double present_log_odds = 0.0;
+    double absent_log_odds = 0.0;
     std::unordered_set<std::string> present;
     for (const auto& token : tokenize(text)) present.insert(token);
 
     // Bernoulli NB evaluates both presence and absence for each retained
-    // vocabulary feature. Stored counts are document frequencies, so no
-    // training database migration is required for this comparison.
+    // vocabulary feature. Keep the two evidence components separate: with a
+    // large sparse Japanese vocabulary, correlated absent features can
+    // dominate the raw Bernoulli score and make its posterior uninformative.
     result.vocabulary_features = words_.size();
     for (const auto& entry : words_) {
         const double p_spam = (static_cast<double>(entry.second.spam) + 1.0) /
@@ -346,14 +348,18 @@ BayesComparison BayesianModel::compare_probabilities(const std::string& text) co
         const double p_ham = (static_cast<double>(entry.second.ham) + 1.0) /
             (static_cast<double>(ham_samples_) + 2.0);
         if (present.find(entry.first) != present.end()) {
-            log_spam += std::log(p_spam);
-            log_ham += std::log(p_ham);
+            present_log_odds += std::log(p_spam) - std::log(p_ham);
+            ++result.bernoulli_present_features;
         } else {
-            log_spam += std::log1p(-p_spam);
-            log_ham += std::log1p(-p_ham);
+            absent_log_odds += std::log1p(-p_spam) - std::log1p(-p_ham);
         }
     }
-    result.bernoulli_log_odds = log_spam - log_ham;
+    result.bernoulli_absent_features =
+        result.vocabulary_features - result.bernoulli_present_features;
+    result.bernoulli_present_log_odds = present_log_odds;
+    result.bernoulli_absent_log_odds = absent_log_odds;
+    result.bernoulli_log_odds =
+        prior_log_odds + present_log_odds + absent_log_odds;
     const double delta = std::clamp(-result.bernoulli_log_odds, -40.0, 40.0);
     result.bernoulli_probability = 1.0 / (1.0 + std::exp(delta));
     BayesDiagnostics diagnostics;
