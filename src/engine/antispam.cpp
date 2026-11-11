@@ -6,6 +6,7 @@
 #include <cmath>
 #include <regex>
 #include <unordered_set>
+#include <unordered_map>
 
 namespace beckyas {
 namespace {
@@ -108,6 +109,55 @@ std::size_t count_url_markers(const std::string& text) {
 }
 std::string combined_text(const Message& m) {
     return classifier_text(m);
+}
+
+int capped_family_score(const std::vector<Finding>& findings, const std::string& family,
+                        int cap, std::size_t* symbol_count) {
+    std::unordered_map<std::string, int> unique_symbols;
+    const std::string prefix = family + ".";
+    for (const auto& finding : findings) {
+        if (finding.rule.compare(0, prefix.size(), prefix) != 0) continue;
+        auto& value = unique_symbols[finding.rule];
+        value = std::max(value, finding.score);
+    }
+    if (symbol_count) *symbol_count += unique_symbols.size();
+    int total = 0;
+    for (const auto& item : unique_symbols) total += std::max(0, item.second);
+    return std::min(cap, total);
+}
+
+void calculate_symbol_comparison(Result& result, const Settings& settings) {
+    auto& comparison = result.symbol_comparison;
+    comparison.authentication_score =
+        capped_family_score(result.findings, "auth", 30, &comparison.symbol_count);
+    comparison.header_score =
+        capped_family_score(result.findings, "header", 10, &comparison.symbol_count);
+    comparison.brand_score =
+        capped_family_score(result.findings, "brand", 35, &comparison.symbol_count);
+    comparison.content_score =
+        capped_family_score(result.findings, "content", 25, &comparison.symbol_count);
+    comparison.url_score =
+        capped_family_score(result.findings, "url", 20, &comparison.symbol_count);
+
+    // Exclude the active presence-only Bayes score. This bounded contribution
+    // is diagnostic only and rewards positive evidence above the learned prior.
+    if (settings.enable_bayes_comparison &&
+        result.bayes_comparison.correlation_adjusted_features > 0) {
+        const double positive_log_odds =
+            std::max(0.0, result.bayes_comparison.correlation_adjusted_log_odds);
+        comparison.bayes_score = std::min(20,
+            static_cast<int>(positive_log_odds * 6.0 + 0.5));
+    }
+    comparison.score = std::clamp(
+        comparison.authentication_score + comparison.header_score +
+        comparison.brand_score + comparison.content_score +
+        comparison.url_score + comparison.bayes_score, 0, 100);
+    if (comparison.score >= settings.spam_threshold)
+        comparison.verdict = Verdict::Spam;
+    else if (comparison.score >= settings.review_threshold)
+        comparison.verdict = Verdict::Review;
+    else
+        comparison.verdict = Verdict::Ham;
 }
 void add(Result& r, const char* id, int score, const char* reason) {
     r.score += score;
@@ -462,6 +512,10 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
     if (r.score >= settings_.spam_threshold) r.verdict = Verdict::Spam;
     else if (r.score >= settings_.review_threshold) r.verdict = Verdict::Review;
     else r.verdict = Verdict::Ham;
+
+    // Comparison-only Rspamd-style aggregation; active score/verdict stay intact.
+    if (settings_.enable_symbol_comparison)
+        calculate_symbol_comparison(r, settings_);
     return r;
 }
 
