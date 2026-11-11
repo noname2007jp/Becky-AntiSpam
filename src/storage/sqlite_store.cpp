@@ -182,6 +182,16 @@ bool SqliteStore::open(std::string* error) {
             return false;
         }
     }
+    if (schema_version < 4) {
+        if (!exec(db_,
+            "ALTER TABLE evaluation_results ADD COLUMN comparison_score INTEGER NOT NULL DEFAULT 0;"
+            "ALTER TABLE evaluation_results ADD COLUMN comparison_verdict INTEGER "
+            "CHECK(comparison_verdict IS NULL OR comparison_verdict IN (0,1,2));"
+            "PRAGMA user_version=4;", error)) {
+            close();
+            return false;
+        }
+    }
     return true;
 }
 
@@ -394,7 +404,9 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
                                                double bayes_probability,
                                                std::size_t ham_samples,
                                                std::size_t spam_samples,
-                                               std::string* error) {
+                                               std::string* error,
+                                               Verdict symbol_verdict,
+                                               int symbol_score) {
     if (!db_) {
         if (error) *error = "データベースが開かれていません";
         return false;
@@ -419,8 +431,8 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
     Statement prediction(db_,
         "INSERT OR IGNORE INTO evaluation_results("
         "message_hash,actual_label,predicted_verdict,score,bayes_probability,"
-        "ham_samples,spam_samples,predicted_utc,labeled_utc) "
-        "VALUES(?1,NULL,?2,?3,?4,?5,?6,?7,NULL)");
+        "ham_samples,spam_samples,predicted_utc,labeled_utc,comparison_score,comparison_verdict) "
+        "VALUES(?1,NULL,?2,?3,?4,?5,?6,?7,NULL,?8,?9)");
     if (!prediction.ok()) {
         set_error(db_, error, "評価予測SQLを準備できません");
         return false;
@@ -432,6 +444,8 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
     sqlite3_bind_int64(prediction.get(), 5, static_cast<sqlite3_int64>(ham_samples));
     sqlite3_bind_int64(prediction.get(), 6, static_cast<sqlite3_int64>(spam_samples));
     sqlite3_bind_int64(prediction.get(), 7, now_utc());
+    sqlite3_bind_int(prediction.get(), 8, symbol_score);
+    sqlite3_bind_int(prediction.get(), 9, static_cast<int>(symbol_verdict));
     if (sqlite3_step(prediction.get()) != SQLITE_DONE) {
         set_error(db_, error, "評価予測を保存できません");
         return false;
@@ -499,7 +513,14 @@ bool SqliteStore::get_evaluation_stats(EvaluationStats& stats,
         "COALESCE(SUM(CASE WHEN actual_label=1 AND predicted_verdict=2 THEN 1 ELSE 0 END),0),"
         "COALESCE(SUM(CASE WHEN actual_label=0 AND predicted_verdict=0 THEN 1 ELSE 0 END),0),"
         "COALESCE(SUM(CASE WHEN actual_label=0 AND predicted_verdict=1 THEN 1 ELSE 0 END),0),"
-        "COALESCE(SUM(CASE WHEN actual_label=0 AND predicted_verdict=2 THEN 1 ELSE 0 END),0) "
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND predicted_verdict=2 THEN 1 ELSE 0 END),0),"
+        "(SELECT count(*) FROM evaluation_results WHERE actual_label IS NOT NULL AND comparison_verdict IS NOT NULL),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND comparison_verdict=0 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND comparison_verdict=1 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND comparison_verdict=2 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_verdict=0 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_verdict=1 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_verdict=2 THEN 1 ELSE 0 END),0) "
         "FROM evaluation_results WHERE actual_label IS NOT NULL");
     if (!summary.ok() || sqlite3_step(summary.get()) != SQLITE_ROW) {
         set_error(db_, error, "評価統計を取得できません");
@@ -513,6 +534,13 @@ bool SqliteStore::get_evaluation_stats(EvaluationStats& stats,
     stats.ham_as_ham = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 5));
     stats.ham_as_review = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 6));
     stats.ham_as_spam = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 7));
+    stats.symbol_labeled = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 8));
+    stats.symbol_spam_as_ham = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 9));
+    stats.symbol_spam_as_review = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 10));
+    stats.symbol_spam_as_spam = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 11));
+    stats.symbol_ham_as_ham = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 12));
+    stats.symbol_ham_as_review = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 13));
+    stats.symbol_ham_as_spam = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 14));
     return true;
 }
 
