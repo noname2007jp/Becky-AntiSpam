@@ -312,6 +312,26 @@ int main() {
     assert(ham_only_comparison.correlation_adjusted_probability < balanced_prior);
     assert(ham_only_comparison.correlation_adjusted_features == 1);
 
+    // A minority-class prior can keep posterior odds below zero even when
+    // the observed feature itself strongly favors Spam. Preserve that lift
+    // separately so the symbol comparison can award bounded evidence points.
+    assert(once.correlation_adjusted_evidence_log_odds > 0.0);
+    assert(once.correlation_adjusted_log_odds <
+           std::log(balanced_prior / (1.0 - balanced_prior)) +
+               once.correlation_adjusted_evidence_log_odds + 1e-12);
+    Settings bayes_symbol_settings;
+    bayes_symbol_settings.enable_bayes_comparison = true;
+    bayes_symbol_settings.enable_symbol_comparison = true;
+    Filter bayes_symbol_filter(bayes_symbol_settings);
+    Message spam_feature_message;
+    spam_feature_message.subject = "knownspamfeature";
+    const auto bayes_symbol_result =
+        bayes_symbol_filter.classify(spam_feature_message, &imbalanced);
+    assert(bayes_symbol_result.symbol_comparison.bayes_score > 0);
+    assert(bayes_symbol_result.symbol_comparison.bayes_score <= 20);
+    assert(bayes_symbol_result.symbol_comparison.score ==
+           bayes_symbol_result.symbol_comparison.bayes_score);
+
     // Repeating an identical message must not multiply evidence: the tokenizer
     // returns unique features and the adjusted estimate is deterministic.
     const auto once = imbalanced.compare_probabilities("knownspamfeature");
@@ -433,7 +453,7 @@ int main() {
     std::filesystem::remove(backup_path);
     std::filesystem::remove(db_path + ".precompact.bak");
 
-    // Existing schema-v2 databases must be upgraded in place to schema v3.
+    // Existing schema-v2 databases must be upgraded in place to schema v4.
     const auto migration_path = (temp / "becky_antispam_schema_v2.sqlite3").string();
     std::filesystem::remove(migration_path);
     std::filesystem::remove(migration_path + "-wal");
@@ -464,6 +484,17 @@ int main() {
         assert(sqlite3_column_int(version, 0) == 4);
         sqlite3_finalize(version);
         sqlite3_close(migrated_db);
+    }
+    // Reopening a v4 database must succeed; this catches a stale maximum-version guard.
+    {
+        SqliteStore reopened_v4(migration_path);
+        assert(reopened_v4.open(&error));
+        EvaluationStats reopened_v4_stats;
+        assert(reopened_v4.get_evaluation_stats(reopened_v4_stats, &error));
+        assert(reopened_v4_stats.pending == 0);
+        assert(reopened_v4_stats.labeled == 0);
+        assert(reopened_v4.integrity_check(integrity, &error));
+        assert(integrity == "ok");
     }
     std::filesystem::remove(migration_path);
     std::filesystem::remove(migration_path + "-wal");
