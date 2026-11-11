@@ -79,6 +79,11 @@ struct BayesComparison {
     double bernoulli_probability = 0.0;
     double presence_log_odds = 0.0;
     double bernoulli_log_odds = 0.0;
+    // Decompose Bernoulli evidence to expose whether absent features dominate.
+    double bernoulli_present_log_odds = 0.0;
+    double bernoulli_absent_log_odds = 0.0;
+    std::size_t bernoulli_present_features = 0;
+    std::size_t bernoulli_absent_features = 0;
     double correlation_adjusted_probability = 0.0;
     double correlation_adjusted_log_odds = 0.0;
     // Evidence lift excludes the corpus prior; useful when Spam is a minority class.
