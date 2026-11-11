@@ -296,6 +296,14 @@ int main() {
     assert(std::isfinite(comparison.presence_probability));
     assert(std::isfinite(comparison.bernoulli_probability));
     assert(comparison.vocabulary_features == imbalanced.vocabulary_size());
+    assert(comparison.bernoulli_present_features == 1);
+    assert(comparison.bernoulli_absent_features ==
+           comparison.vocabulary_features - comparison.bernoulli_present_features);
+    assert(std::abs(comparison.bernoulli_log_odds -
+        (std::log(imbalanced.spam_probability("") /
+                  (1.0 - imbalanced.spam_probability(""))) +
+         comparison.bernoulli_present_log_odds +
+         comparison.bernoulli_absent_log_odds)) < 1e-9);
     assert(std::abs(comparison.presence_probability -
         imbalanced.spam_probability("knownspamfeature unknownfeature")) < 1e-12);
     // Bernoulli scoring includes absent vocabulary features and may differ
