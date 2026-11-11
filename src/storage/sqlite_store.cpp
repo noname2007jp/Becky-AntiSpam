@@ -422,7 +422,8 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
     }
 
     const int verdict = static_cast<int>(predicted);
-    if (verdict < 0 || verdict > 2) {
+    const int comparison_verdict = static_cast<int>(symbol_verdict);
+    if (verdict < 0 || verdict > 2 || comparison_verdict < 0 || comparison_verdict > 2) {
         if (error) *error = "未対応の判定結果です";
         return false;
     }
