@@ -183,11 +183,15 @@ bool SqliteStore::open(std::string* error) {
         }
     }
     if (schema_version < 4) {
+        // Keep the two-column migration atomic. If any statement fails, closing
+        // the connection rolls back instead of leaving a partially upgraded DB.
         if (!exec(db_,
+            "BEGIN IMMEDIATE;"
             "ALTER TABLE evaluation_results ADD COLUMN comparison_score INTEGER NOT NULL DEFAULT 0;"
             "ALTER TABLE evaluation_results ADD COLUMN comparison_verdict INTEGER "
             "CHECK(comparison_verdict IS NULL OR comparison_verdict IN (0,1,2));"
-            "PRAGMA user_version=4;", error)) {
+            "PRAGMA user_version=4;"
+            "COMMIT;", error)) {
             close();
             return false;
         }
