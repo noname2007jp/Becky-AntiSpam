@@ -143,10 +143,13 @@ void calculate_symbol_comparison(Result& result, const Settings& settings) {
     // is diagnostic only and rewards positive evidence above the learned prior.
     if (settings.enable_bayes_comparison &&
         result.bayes_comparison.correlation_adjusted_features > 0) {
-        const double positive_log_odds =
-            std::max(0.0, result.bayes_comparison.correlation_adjusted_log_odds);
+        // Score the evidence lift, not the posterior log-odds. A minority Spam
+        // corpus can have a negative prior log-odds even when this message's
+        // learned features strongly favor Spam over Ham.
+        const double positive_evidence = std::max(
+            0.0, result.bayes_comparison.correlation_adjusted_evidence_log_odds);
         comparison.bayes_score = std::min(20,
-            static_cast<int>(positive_log_odds * 6.0 + 0.5));
+            static_cast<int>(positive_evidence * 6.0 + 0.5));
     }
     comparison.score = std::clamp(
         comparison.authentication_score + comparison.header_score +
@@ -342,8 +345,10 @@ BayesComparison BayesianModel::compare_probabilities(const std::string& text) co
     result.correlation_adjusted_features = known_features;
     result.correlation_adjustment_scale = known_features == 0
         ? 0.0 : 1.0 / (static_cast<double>(known_features) + smoothing_strength);
-    result.correlation_adjusted_log_odds = prior_log_odds +
+    result.correlation_adjusted_evidence_log_odds =
         evidence_sum * result.correlation_adjustment_scale;
+    result.correlation_adjusted_log_odds = prior_log_odds +
+        result.correlation_adjusted_evidence_log_odds;
     const double correlation_delta =
         std::clamp(-result.correlation_adjusted_log_odds, -40.0, 40.0);
     result.correlation_adjusted_probability = 1.0 / (1.0 + std::exp(correlation_delta));
