@@ -162,6 +162,48 @@ void calculate_symbol_comparison(Result& result, const Settings& settings) {
     else
         comparison.verdict = Verdict::Ham;
 }
+void calculate_symbol_experiment(Result& result, const Settings& settings) {
+    auto& experiment = result.symbol_experiment;
+    std::unordered_map<std::string, int> content_symbols;
+    std::unordered_map<std::string, int> url_symbols;
+    for (const auto& finding : result.findings) {
+        double multiplier = 1.0;
+        if (finding.rule == "content.generic_lure_url") multiplier = 1.35;
+        else if (finding.rule.compare(0, 8, "content.") == 0) multiplier = 1.25;
+        else if (finding.rule == "url.ip_literal") multiplier = 1.50;
+        else if (finding.rule == "url.multiple") multiplier = 1.25;
+        if (finding.rule.compare(0, 8, "content.") == 0) {
+            auto& value = content_symbols[finding.rule];
+            value = std::max(value, static_cast<int>(std::lround(finding.score * multiplier)));
+        } else if (finding.rule.compare(0, 4, "url.") == 0) {
+            auto& value = url_symbols[finding.rule];
+            value = std::max(value, static_cast<int>(std::lround(finding.score * multiplier)));
+        }
+    }
+    for (const auto& item : content_symbols) experiment.content_score += std::max(0, item.second);
+    for (const auto& item : url_symbols) experiment.url_score += std::max(0, item.second);
+    experiment.content_score = std::min(35, experiment.content_score);
+    experiment.url_score = std::min(25, experiment.url_score);
+    if (settings.enable_bayes_comparison &&
+        result.bayes_comparison.correlation_adjusted_features > 0) {
+        const double positive_evidence = std::max(
+            0.0, result.bayes_comparison.correlation_adjusted_evidence_log_odds);
+        experiment.bayes_score = std::min(30,
+            static_cast<int>(positive_evidence * 13.0 + 0.5));
+    }
+    experiment.score = std::clamp(
+        result.symbol_comparison.authentication_score +
+        result.symbol_comparison.header_score +
+        result.symbol_comparison.brand_score + experiment.content_score +
+        experiment.url_score + experiment.bayes_score, 0, 100);
+    if (experiment.score >= settings.spam_threshold)
+        experiment.verdict = Verdict::Spam;
+    else if (experiment.score >= settings.review_threshold)
+        experiment.verdict = Verdict::Review;
+    else
+        experiment.verdict = Verdict::Ham;
+}
+
 void add(Result& r, const char* id, int score, const char* reason) {
     r.score += score;
     r.findings.push_back({id, score, reason});
@@ -519,8 +561,10 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
     else r.verdict = Verdict::Ham;
 
     // Comparison-only Rspamd-style aggregation; active score/verdict stay intact.
-    if (settings_.enable_symbol_comparison)
+    if (settings_.enable_symbol_comparison) {
         calculate_symbol_comparison(r, settings_);
+        calculate_symbol_experiment(r, settings_);
+    }
     return r;
 }
 
