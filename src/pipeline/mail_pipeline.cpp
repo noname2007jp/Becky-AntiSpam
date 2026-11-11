@@ -106,7 +106,8 @@ bool MailPipeline::record_prediction(const std::string& raw_message,
     const auto hash = evaluation_message_hash(raw_message);
     return store_.record_evaluation_prediction(
         hash, result.verdict, result.score, result.bayes_probability,
-        model_.ham_samples(), model_.spam_samples(), error);
+        model_.ham_samples(), model_.spam_samples(), error,
+        result.symbol_comparison.verdict, result.symbol_comparison.score);
 }
 
 bool MailPipeline::get_evaluation_stats(EvaluationStats& stats,
