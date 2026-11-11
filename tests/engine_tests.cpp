@@ -196,6 +196,53 @@ int main() {
     assert(result.score >= 60);
     assert(result.verdict == Verdict::Spam);
 
+    // Rspamd-inspired symbol scoring is an offline comparison and must not
+    // change the active classifier score or verdict.
+    Settings legacy_symbol_settings;
+    Settings candidate_symbol_settings;
+    candidate_symbol_settings.enable_bayes_comparison = true;
+    candidate_symbol_settings.enable_symbol_comparison = true;
+    BrandRule candidate_brand;
+    candidate_brand.aliases = {"Amazon"};
+    candidate_brand.allowed_domains = {"amazon.co.jp"};
+    candidate_symbol_settings.brand_rules.push_back(candidate_brand);
+    legacy_symbol_settings.brand_rules.push_back(candidate_brand);
+    Filter legacy_symbol_filter(legacy_symbol_settings);
+    Filter candidate_symbol_filter(candidate_symbol_settings);
+    BayesianModel symbol_model;
+    for (int i = 0; i < 6; ++i) {
+        symbol_model.train("無料 当選 賞金 アカウント 支払い", true);
+        symbol_model.train("会議 議事録 業務 予定", false);
+    }
+    Message symbol_message;
+    symbol_message.from = "Amazon <notice@fake.invalid>";
+    symbol_message.return_path = "bounce@other.invalid";
+    symbol_message.subject = "Amazon アカウントを停止";
+    symbol_message.body =
+        "アカウントを停止します。未払い料金のお支払い方法を確認してください。"
+        "本日中に対応してください https://bad.invalid/a https://bad.invalid/b "
+        "https://bad.invalid/c https://bad.invalid/d";
+    symbol_message.trusted_return_path = true;
+    symbol_message.trusted_authentication_results = true;
+    symbol_message.spf_result = "fail";
+    symbol_message.dkim_result = "fail";
+    symbol_message.dmarc_result = "fail";
+    const auto legacy_symbol_result =
+        legacy_symbol_filter.classify(symbol_message, &symbol_model);
+    const auto candidate_symbol_result =
+        candidate_symbol_filter.classify(symbol_message, &symbol_model);
+    assert(candidate_symbol_result.score == legacy_symbol_result.score);
+    assert(candidate_symbol_result.verdict == legacy_symbol_result.verdict);
+    assert(candidate_symbol_result.symbol_comparison.score > 0);
+    assert(candidate_symbol_result.symbol_comparison.authentication_score <= 30);
+    assert(candidate_symbol_result.symbol_comparison.header_score <= 10);
+    assert(candidate_symbol_result.symbol_comparison.brand_score <= 35);
+    assert(candidate_symbol_result.symbol_comparison.content_score <= 25);
+    assert(candidate_symbol_result.symbol_comparison.url_score <= 20);
+    assert(candidate_symbol_result.symbol_comparison.bayes_score <= 20);
+    assert(candidate_symbol_result.symbol_comparison.score <= 100);
+    assert(candidate_symbol_result.symbol_comparison.verdict == Verdict::Spam);
+
     BayesianModel model;
     for (int i = 0; i < 6; ++i) {
         model.train("当選 無料 賞金 今すぐ応募", true);
