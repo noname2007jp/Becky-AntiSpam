@@ -142,7 +142,7 @@ bool SqliteStore::open(std::string* error) {
         }
         schema_version = sqlite3_column_int(version.get(), 0);
     }
-    if (schema_version > 3) {
+    if (schema_version > 4) {
         if (error) *error = "未対応のデータベーススキーマです";
         close();
         return false;
