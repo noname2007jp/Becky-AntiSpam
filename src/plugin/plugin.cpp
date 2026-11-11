@@ -120,6 +120,12 @@ void test_log(const char* level, const std::string& message) noexcept {
     log_line(g_audit_log, level, std::string("[TEST] ") + message, kDefaultLogLimit);
 }
 
+void test_log_case(const char* level, std::uint64_t case_number,
+                  const std::string& message) noexcept {
+    if (!g_log_settings.enabled || !g_log_settings.test_mode) return;
+    test_log(level, std::string("case=") + std::to_string(case_number) + " " + message);
+}
+
 bool initialize_plugin() {
     // Becky! SDK: BKA_Alloc allocates callback-lifetime memory for filter parameters.
     const auto becky_module = GetModuleHandleW(nullptr);
@@ -428,6 +434,12 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
             return 0;
         }
 
+        // Assign one sequential test case number before writing any per-message
+        // diagnostics so test-detail.log and test-summary.log can be correlated.
+        const std::uint64_t test_case_number =
+            (g_log_settings.enabled && g_log_settings.test_mode)
+                ? ++g_test_case_sequence : 0;
+
         // Detailed diagnostics intentionally contain classifier metadata only.
         // Never log sender, subject, headers, body, tokens, or raw message data.
         const char* verdict_name = result.verdict == beckyas::Verdict::Spam ? "Spam" :
@@ -437,7 +449,7 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
             result.bayes_probability * 100.0 + 0.5);
         const auto parsed_url_count = diagnostic_url_count(
             parsed.message.subject + "\n" + parsed.message.headers + "\n" + parsed.message.body);
-        test_log("INFO", std::string("parse-metadata source_bytes=") +
+        test_log_case("INFO", test_case_number, std::string("parse-metadata source_bytes=") +
             std::to_string(parsed.source_bytes) +
             " header_count=" + std::to_string(parsed.headers.size()) +
             " subject_bytes=" + std::to_string(parsed.message.subject.size()) +
@@ -449,9 +461,9 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
             " warnings=" + std::to_string(parsed.warnings.size()) +
             " body_truncated=" + std::string(parsed.body_truncated ? "yes" : "no"));
         for (const auto& warning : parsed.warnings) {
-            test_log("WARN", std::string("parse-warning ") + warning);
+            test_log_case("WARN", test_case_number, std::string("parse-warning ") + warning);
         }
-        test_log("INFO", std::string("brand-match rules_checked=") +
+        test_log_case("INFO", test_case_number, std::string("brand-match rules_checked=") +
             std::to_string(result.brand_rules_checked) +
             " matched=" + (result.brand_rule_matched ? "yes" : "no") +
             " subject_match=" + (result.brand_subject_match ? "yes" : "no") +
@@ -460,7 +472,7 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
             " from_allowed=" + (result.brand_from_allowed ? "yes" : "no") +
             " url_hosts_checked=" + std::to_string(result.brand_url_hosts_checked) +
             " url_domain_mismatch=" + (result.brand_url_domain_mismatch ? "yes" : "no"));
-        test_log("INFO", std::string("classification verdict=") + verdict_name +
+        test_log_case("INFO", test_case_number, std::string("classification verdict=") + verdict_name +
             " score=" + std::to_string(result.score) +
             " bayes_probability=" + std::to_string(bayes_percent) + "%" +
             " bayes_tokens=" + std::to_string(result.bayes_diagnostics.total_tokens) +
@@ -503,7 +515,6 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
         // One compact, privacy-safe record per analyzed message for sharing.
         // Do not include message IDs, addresses, domains, subjects, URLs, or tokens.
         if (g_log_settings.enabled && g_log_settings.test_mode) {
-            ++g_test_case_sequence;
             const auto corr_percent = static_cast<int>(
                 result.bayes_comparison.correlation_adjusted_probability * 100.0 + 0.5);
             const auto bernoulli_percent = static_cast<int>(
@@ -515,7 +526,7 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
                 ? "Spam" : result.symbol_experiment.verdict == beckyas::Verdict::Review
                 ? "Review" : "Ham";
             log_line(g_summary_log, "SUMMARY",
-                std::string("format=1 case=") + std::to_string(g_test_case_sequence) +
+                std::string("format=1 case=") + std::to_string(test_case_number) +
                 " verdict=" + verdict_name +
                 " score=" + std::to_string(result.score) +
                 " bayes=" + std::to_string(bayes_percent) +
@@ -550,7 +561,7 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
                 kTestLogLimit);
         }
         for (const auto& finding : result.findings) {
-            test_log("INFO", std::string("finding rule=") + finding.rule +
+            test_log_case("INFO", test_case_number, std::string("finding rule=") + finding.rule +
                 " score=" + (finding.score >= 0 ? "+" : "") +
                 std::to_string(finding.score) +
                 " reason=" + finding.reason);
