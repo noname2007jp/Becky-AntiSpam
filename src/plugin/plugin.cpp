@@ -476,6 +476,8 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
                     result.bayes_comparison.correlation_adjusted_probability * 100.0 + 0.5)) + "%" +
             " bayes_corr_log_odds=" +
                 std::to_string(result.bayes_comparison.correlation_adjusted_log_odds) +
+            " bayes_corr_evidence_log_odds=" +
+                std::to_string(result.bayes_comparison.correlation_adjusted_evidence_log_odds) +
             " bayes_corr_features=" +
                 std::to_string(result.bayes_comparison.correlation_adjusted_features) +
             " bayes_corr_scale=" +
