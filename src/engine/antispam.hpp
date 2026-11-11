@@ -31,6 +31,7 @@ struct Settings {
     bool enable_authentication_rules = true;
     bool enable_url_rules = true;
     bool enable_bayes_comparison = false;
+    bool enable_symbol_comparison = false;
     std::vector<BrandRule> brand_rules;
 };
 
@@ -41,6 +42,18 @@ struct Finding {
 };
 
 enum class Verdict { Ham, Review, Spam };
+
+struct SymbolScoreComparison {
+    int score = 0;
+    Verdict verdict = Verdict::Ham;
+    int authentication_score = 0;
+    int header_score = 0;
+    int brand_score = 0;
+    int content_score = 0;
+    int url_score = 0;
+    int bayes_score = 0;
+    std::size_t symbol_count = 0;
+};
 
 struct BayesDiagnostics {
     std::size_t total_tokens = 0;
@@ -69,6 +82,7 @@ struct Result {
     double bayes_probability = 0.0;
     BayesDiagnostics bayes_diagnostics;
     BayesComparison bayes_comparison;
+    SymbolScoreComparison symbol_comparison;
     // Privacy-safe diagnostics: booleans/counts only; never retain matched text or domains.
     std::size_t brand_rules_checked = 0;
     bool brand_rule_matched = false;
