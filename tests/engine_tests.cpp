@@ -318,9 +318,10 @@ int main() {
     // the observed feature itself strongly favors Spam. Preserve that lift
     // separately so the symbol comparison can award bounded evidence points.
     assert(once.correlation_adjusted_evidence_log_odds > 0.0);
-    assert(once.correlation_adjusted_log_odds <
-           std::log(balanced_prior / (1.0 - balanced_prior)) +
-               once.correlation_adjusted_evidence_log_odds + 1e-12);
+    assert(once.correlation_adjusted_log_odds < 0.0);
+    assert(std::abs(once.correlation_adjusted_log_odds -
+        (std::log(balanced_prior / (1.0 - balanced_prior)) +
+         once.correlation_adjusted_evidence_log_odds)) < 1e-12);
     Settings bayes_symbol_settings;
     bayes_symbol_settings.enable_bayes_comparison = true;
     bayes_symbol_settings.enable_symbol_comparison = true;
