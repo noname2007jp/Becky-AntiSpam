@@ -377,17 +377,17 @@ int main() {
     const std::string eval_ham_false_positive(64, 'h');
     const std::string eval_ham_hit(64, 'i');
     const std::string eval_pending(64, 'j');
-    assert(store.record_evaluation_prediction(eval_spam_hit, Verdict::Spam, 80, 0.99, 2, 5, &error));
+    assert(store.record_evaluation_prediction(eval_spam_hit, Verdict::Spam, 80, 0.99, 2, 5, &error, Verdict::Spam, 82));
     assert(store.complete_evaluation(eval_spam_hit, true, &error));
-    assert(store.record_evaluation_prediction(eval_spam_review, Verdict::Review, 40, 0.80, 2, 5, &error));
+    assert(store.record_evaluation_prediction(eval_spam_review, Verdict::Review, 40, 0.80, 2, 5, &error, Verdict::Review, 35));
     assert(store.complete_evaluation(eval_spam_review, true, &error));
-    assert(store.record_evaluation_prediction(eval_spam_miss, Verdict::Ham, 0, 0.01, 2, 5, &error));
+    assert(store.record_evaluation_prediction(eval_spam_miss, Verdict::Ham, 0, 0.01, 2, 5, &error, Verdict::Ham, 0));
     assert(store.complete_evaluation(eval_spam_miss, true, &error));
-    assert(store.record_evaluation_prediction(eval_ham_false_positive, Verdict::Spam, 70, 0.95, 2, 5, &error));
+    assert(store.record_evaluation_prediction(eval_ham_false_positive, Verdict::Spam, 70, 0.95, 2, 5, &error, Verdict::Review, 40));
     assert(store.complete_evaluation(eval_ham_false_positive, false, &error));
-    assert(store.record_evaluation_prediction(eval_ham_hit, Verdict::Ham, 0, 0.02, 2, 5, &error));
+    assert(store.record_evaluation_prediction(eval_ham_hit, Verdict::Ham, 0, 0.02, 2, 5, &error, Verdict::Ham, 0));
     assert(store.complete_evaluation(eval_ham_hit, false, &error));
-    assert(store.record_evaluation_prediction(eval_pending, Verdict::Review, 35, 0.65, 2, 5, &error));
+    assert(store.record_evaluation_prediction(eval_pending, Verdict::Review, 35, 0.65, 2, 5, &error, Verdict::Review, 35));
     EvaluationStats evaluation_stats;
     assert(store.get_evaluation_stats(evaluation_stats, &error));
     assert(evaluation_stats.pending == 1);
@@ -398,6 +398,13 @@ int main() {
     assert(evaluation_stats.ham_as_ham == 1);
     assert(evaluation_stats.ham_as_review == 0);
     assert(evaluation_stats.ham_as_spam == 1);
+    assert(evaluation_stats.symbol_labeled == 5);
+    assert(evaluation_stats.symbol_spam_as_ham == 1);
+    assert(evaluation_stats.symbol_spam_as_review == 1);
+    assert(evaluation_stats.symbol_spam_as_spam == 1);
+    assert(evaluation_stats.symbol_ham_as_ham == 1);
+    assert(evaluation_stats.symbol_ham_as_review == 1);
+    assert(evaluation_stats.symbol_ham_as_spam == 0);
 
     std::string integrity;
     assert(store.integrity_check(integrity, &error));
