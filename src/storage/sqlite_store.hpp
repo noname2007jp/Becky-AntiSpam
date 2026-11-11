@@ -29,6 +29,13 @@ struct EvaluationStats {
     std::size_t ham_as_ham = 0;
     std::size_t ham_as_review = 0;
     std::size_t ham_as_spam = 0;
+    std::size_t symbol_labeled = 0;
+    std::size_t symbol_spam_as_ham = 0;
+    std::size_t symbol_spam_as_review = 0;
+    std::size_t symbol_spam_as_spam = 0;
+    std::size_t symbol_ham_as_ham = 0;
+    std::size_t symbol_ham_as_review = 0;
+    std::size_t symbol_ham_as_spam = 0;
 };
 
 class SqliteStore {
@@ -58,7 +65,9 @@ public:
                                       double bayes_probability,
                                       std::size_t ham_samples,
                                       std::size_t spam_samples,
-                                      std::string* error = nullptr);
+                                      std::string* error = nullptr,
+                                      Verdict symbol_verdict = Verdict::Ham,
+                                      int symbol_score = 0);
     bool complete_evaluation(const std::string& message_hash, bool spam,
                              std::string* error = nullptr);
     bool get_evaluation_stats(EvaluationStats& stats,
