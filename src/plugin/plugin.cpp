@@ -519,6 +519,13 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
             " symbol_count=" + std::to_string(result.symbol_comparison.symbol_count) +
             " symbol_verdict=" + (result.symbol_comparison.verdict == beckyas::Verdict::Spam
                 ? "Spam" : result.symbol_comparison.verdict == beckyas::Verdict::Review
+                ? "Review" : "Ham") +
+            " symbol_v2_score=" + std::to_string(result.symbol_experiment.score) +
+            " symbol_v2_content=" + std::to_string(result.symbol_experiment.content_score) +
+            " symbol_v2_url=" + std::to_string(result.symbol_experiment.url_score) +
+            " symbol_v2_bayes=" + std::to_string(result.symbol_experiment.bayes_score) +
+            " symbol_v2_verdict=" + (result.symbol_experiment.verdict == beckyas::Verdict::Spam
+                ? "Spam" : result.symbol_experiment.verdict == beckyas::Verdict::Review
                 ? "Review" : "Ham"));
         // One compact, privacy-safe record per analyzed message for sharing.
         // Do not include message IDs, addresses, domains, subjects, URLs, or tokens.
