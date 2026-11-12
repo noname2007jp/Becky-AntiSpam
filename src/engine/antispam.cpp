@@ -372,7 +372,6 @@ BayesComparison BayesianModel::compare_probabilities(const std::string& text) co
     // - average token evidence instead of summing every overlapping Japanese
     //   bigram as if it were statistically independent.
     const double total_samples = static_cast<double>(spam_samples_ + ham_samples_);
-    const double prior_log_odds = std::log(prior / (1.0 - prior));
     constexpr double smoothing_strength = 5.0;
     double evidence_sum = 0.0;
     std::size_t known_features = 0;
