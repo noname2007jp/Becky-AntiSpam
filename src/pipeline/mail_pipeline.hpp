@@ -33,6 +33,9 @@ public:
     // The plugin's own classification header is excluded from this hash.
     bool record_prediction(const std::string& raw_message, const Result& result,
                            std::string* error = nullptr);
+    // Attach a user-confirmed evaluation label only; never updates the Bayes model.
+    bool label_evaluation(const std::string& raw_message, bool spam,
+                          bool* matched = nullptr, std::string* error = nullptr);
     bool get_evaluation_stats(EvaluationStats& stats,
                               std::string* error = nullptr) const;
 
