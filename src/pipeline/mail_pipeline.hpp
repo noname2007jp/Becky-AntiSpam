@@ -4,6 +4,7 @@
 #include "message_parser.hpp"
 #include "sqlite_store.hpp"
 
+#include <cstdint>
 #include <string>
 
 namespace beckyas {
