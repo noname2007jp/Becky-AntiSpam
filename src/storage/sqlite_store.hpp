@@ -46,6 +46,8 @@ struct EvaluationRecord {
     Verdict predicted_verdict = Verdict::Ham;
     bool comparison_available = false;
     Verdict comparison_verdict = Verdict::Ham;
+    bool comparison_v2_available = false;
+    Verdict comparison_v2_verdict = Verdict::Ham;
 };
 
 class SqliteStore {
@@ -80,7 +82,8 @@ public:
                                       Verdict symbol_verdict = Verdict::Ham,
                                       int symbol_score = 0,
                                       bool comparison_available = true,
-                                      std::uint64_t diagnostic_case = 0);
+                                      std::uint64_t diagnostic_case = 0,
+                                      Verdict symbol_v2_verdict = Verdict::Ham);
     bool complete_evaluation(const std::string& message_hash, bool spam,
                              std::string* error = nullptr,
                              bool* matched = nullptr,
