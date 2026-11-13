@@ -110,7 +110,8 @@ bool MailPipeline::record_prediction(const std::string& raw_message,
         hash, result.verdict, result.score, result.bayes_probability,
         model_.ham_samples(), model_.spam_samples(), error,
         result.symbol_comparison.verdict, result.symbol_comparison.score,
-        include_symbol_comparison, diagnostic_case);
+        include_symbol_comparison, diagnostic_case,
+        result.symbol_experiment.verdict);
 }
 
 bool MailPipeline::label_evaluation(const std::string& raw_message,
