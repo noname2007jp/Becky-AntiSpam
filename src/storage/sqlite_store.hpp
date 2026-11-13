@@ -72,7 +72,8 @@ public:
                                       Verdict symbol_verdict = Verdict::Ham,
                                       int symbol_score = 0);
     bool complete_evaluation(const std::string& message_hash, bool spam,
-                             std::string* error = nullptr);
+                             std::string* error = nullptr,
+                             bool* matched = nullptr);
     bool get_evaluation_stats(EvaluationStats& stats,
                               std::string* error = nullptr) const;
     bool load_model(BayesianModel& model, std::string* error = nullptr) const;
