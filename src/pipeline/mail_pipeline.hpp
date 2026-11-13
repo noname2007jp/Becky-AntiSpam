@@ -32,7 +32,8 @@ public:
     // Persist the pre-training prediction using a canonical raw-message hash.
     // The plugin's own classification header is excluded from this hash.
     bool record_prediction(const std::string& raw_message, const Result& result,
-                           std::string* error = nullptr);
+                           std::string* error = nullptr,
+                           bool include_symbol_comparison = true);
     // Attach a user-confirmed evaluation label only; never updates the Bayes model.
     bool label_evaluation(const std::string& raw_message, bool spam,
                           bool* matched = nullptr, std::string* error = nullptr);
