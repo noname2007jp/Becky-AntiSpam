@@ -9,6 +9,8 @@
 #include <cassert>
 #include <filesystem>
 #include <iostream>
+#include <cmath>
+#include <sqlite3.h>
 
 using namespace beckyas;
 
@@ -194,6 +196,59 @@ int main() {
     assert(result.score >= 60);
     assert(result.verdict == Verdict::Spam);
 
+    // Rspamd-inspired symbol scoring is an offline comparison and must not
+    // change the active classifier score or verdict.
+    Settings legacy_symbol_settings;
+    Settings candidate_symbol_settings;
+    candidate_symbol_settings.enable_bayes_comparison = true;
+    candidate_symbol_settings.enable_symbol_comparison = true;
+    BrandRule candidate_brand;
+    candidate_brand.aliases = {"Amazon"};
+    candidate_brand.allowed_domains = {"amazon.co.jp"};
+    candidate_symbol_settings.brand_rules.push_back(candidate_brand);
+    legacy_symbol_settings.brand_rules.push_back(candidate_brand);
+    Filter legacy_symbol_filter(legacy_symbol_settings);
+    Filter candidate_symbol_filter(candidate_symbol_settings);
+    BayesianModel symbol_model;
+    for (int i = 0; i < 6; ++i) {
+        symbol_model.train("無料 当選 賞金 アカウント 支払い", true);
+        symbol_model.train("会議 議事録 業務 予定", false);
+    }
+    Message symbol_message;
+    symbol_message.from = "Amazon <notice@fake.invalid>";
+    symbol_message.return_path = "bounce@other.invalid";
+    symbol_message.subject = "Amazon アカウントを停止";
+    symbol_message.body =
+        "アカウントを停止します。未払い料金のお支払い方法を確認してください。"
+        "本日中に対応してください https://bad.invalid/a https://bad.invalid/b "
+        "https://bad.invalid/c https://bad.invalid/d";
+    symbol_message.trusted_return_path = true;
+    symbol_message.trusted_authentication_results = true;
+    symbol_message.spf_result = "fail";
+    symbol_message.dkim_result = "fail";
+    symbol_message.dmarc_result = "fail";
+    const auto legacy_symbol_result =
+        legacy_symbol_filter.classify(symbol_message, &symbol_model);
+    const auto candidate_symbol_result =
+        candidate_symbol_filter.classify(symbol_message, &symbol_model);
+    assert(candidate_symbol_result.score == legacy_symbol_result.score);
+    assert(candidate_symbol_result.verdict == legacy_symbol_result.verdict);
+    assert(candidate_symbol_result.symbol_comparison.score > 0);
+    assert(candidate_symbol_result.symbol_comparison.authentication_score <= 30);
+    assert(candidate_symbol_result.symbol_comparison.header_score <= 10);
+    assert(candidate_symbol_result.symbol_comparison.brand_score <= 35);
+    assert(candidate_symbol_result.symbol_comparison.content_score <= 25);
+    assert(candidate_symbol_result.symbol_comparison.url_score <= 20);
+    assert(candidate_symbol_result.symbol_comparison.bayes_score <= 20);
+    assert(candidate_symbol_result.symbol_comparison.score <= 100);
+    assert(candidate_symbol_result.symbol_comparison.verdict == Verdict::Spam);
+    assert(candidate_symbol_result.symbol_experiment.score >=
+           candidate_symbol_result.symbol_comparison.score);
+    assert(candidate_symbol_result.symbol_experiment.content_score <= 35);
+    assert(candidate_symbol_result.symbol_experiment.url_score <= 25);
+    assert(candidate_symbol_result.symbol_experiment.bayes_score <= 30);
+    assert(candidate_symbol_result.symbol_experiment.verdict == Verdict::Spam);
+
     BayesianModel model;
     for (int i = 0; i < 6; ++i) {
         model.train("当選 無料 賞金 今すぐ応募", true);
@@ -201,6 +256,105 @@ int main() {
     }
     assert(model.spam_probability("無料 賞金 当選") >
            model.spam_probability("会議 議事録"));
+
+    // Unknown tokens must be neutral even when the training classes are imbalanced.
+    BayesianModel imbalanced;
+    for (int i = 0; i < 19; ++i)
+        imbalanced.train("knownspamfeature", true);
+    for (int i = 0; i < 131; ++i)
+        imbalanced.train("knownhamfeature", false);
+    const double prior_probability = imbalanced.spam_probability("");
+    BayesDiagnostics unknown_diagnostics;
+    const double unknown_probability =
+        imbalanced.spam_probability("neverseenword anotherunknownword", &unknown_diagnostics);
+    assert(std::abs(unknown_probability - prior_probability) < 1e-12);
+    assert(unknown_diagnostics.total_tokens == 2);
+    assert(unknown_diagnostics.known_tokens == 0);
+    assert(unknown_diagnostics.unknown_tokens == 2);
+    assert(unknown_diagnostics.spam_evidence_tokens == 0);
+    assert(unknown_diagnostics.ham_evidence_tokens == 0);
+    assert(std::abs(unknown_diagnostics.log_odds -
+        std::log(prior_probability / (1.0 - prior_probability))) < 1e-12);
+    assert(imbalanced.spam_probability("knownspamfeature") > prior_probability);
+    assert(imbalanced.spam_probability("knownhamfeature") < prior_probability);
+
+    // A Ham-only token seen in just one document must not become Spam evidence
+    // solely because the Spam and Ham class denominators are different.
+    BayesianModel singleton_ham;
+    for (int i = 0; i < 19; ++i)
+        singleton_ham.train("spam_class_background", true);
+    singleton_ham.train("ham_singleton_feature", false);
+    for (int i = 0; i < 130; ++i)
+        singleton_ham.train("ham_class_background", false);
+    const double singleton_prior = singleton_ham.spam_probability("");
+    assert(singleton_ham.spam_probability("ham_singleton_feature") > singleton_prior);
+    const auto singleton_ham_comparison =
+        singleton_ham.compare_probabilities("ham_singleton_feature");
+    assert(singleton_ham_comparison.correlation_adjusted_probability < singleton_prior);
+
+    const auto comparison = imbalanced.compare_probabilities("knownspamfeature unknownfeature");
+    assert(std::isfinite(comparison.presence_probability));
+    assert(std::isfinite(comparison.bernoulli_probability));
+    assert(comparison.vocabulary_features == imbalanced.vocabulary_size());
+    assert(comparison.bernoulli_present_features == 1);
+    assert(comparison.bernoulli_absent_features ==
+           comparison.vocabulary_features - comparison.bernoulli_present_features);
+    assert(std::abs(comparison.bernoulli_log_odds -
+        (std::log(imbalanced.spam_probability("") /
+                  (1.0 - imbalanced.spam_probability(""))) +
+         comparison.bernoulli_present_log_odds +
+         comparison.bernoulli_absent_log_odds)) < 1e-9);
+    assert(std::abs(comparison.presence_probability -
+        imbalanced.spam_probability("knownspamfeature unknownfeature")) < 1e-12);
+    // Bernoulli scoring includes absent vocabulary features and may differ
+    // from the presence-only baseline.
+    assert(std::abs(comparison.bernoulli_probability -
+        comparison.presence_probability) > 1e-9);
+    assert(std::isfinite(comparison.correlation_adjusted_probability));
+    assert(comparison.correlation_adjusted_features == 1);
+    assert(comparison.correlation_adjustment_scale > 0.0);
+    // The correlation-aware estimate is deliberately less extreme than the
+    // raw presence model for a single learned feature.
+    assert(comparison.correlation_adjusted_probability <
+           comparison.presence_probability);
+
+    // A token observed only in the larger Ham class must not become Spam
+    // evidence merely because the class denominators differ.
+    const double balanced_prior = imbalanced.spam_probability("");
+    const auto ham_only_comparison =
+        imbalanced.compare_probabilities("knownhamfeature");
+    assert(ham_only_comparison.correlation_adjusted_probability < balanced_prior);
+    assert(ham_only_comparison.correlation_adjusted_features == 1);
+
+    const auto once = imbalanced.compare_probabilities("knownspamfeature");
+
+    // A minority-class prior can keep posterior odds below zero even when
+    // the observed feature itself strongly favors Spam. Preserve that lift
+    // separately so the symbol comparison can award bounded evidence points.
+    assert(once.correlation_adjusted_evidence_log_odds > 0.0);
+    assert(once.correlation_adjusted_log_odds < 0.0);
+    assert(std::abs(once.correlation_adjusted_log_odds -
+        (std::log(balanced_prior / (1.0 - balanced_prior)) +
+         once.correlation_adjusted_evidence_log_odds)) < 1e-12);
+    Settings bayes_symbol_settings;
+    bayes_symbol_settings.enable_bayes_comparison = true;
+    bayes_symbol_settings.enable_symbol_comparison = true;
+    Filter bayes_symbol_filter(bayes_symbol_settings);
+    Message spam_feature_message;
+    spam_feature_message.subject = "knownspamfeature";
+    const auto bayes_symbol_result =
+        bayes_symbol_filter.classify(spam_feature_message, &imbalanced);
+    assert(bayes_symbol_result.symbol_comparison.bayes_score > 0);
+    assert(bayes_symbol_result.symbol_comparison.bayes_score <= 20);
+    assert(bayes_symbol_result.symbol_comparison.score ==
+           bayes_symbol_result.symbol_comparison.bayes_score);
+
+    // Repeating an identical message must not multiply evidence: the tokenizer
+    // returns unique features and the adjusted estimate is deterministic.
+    const auto repeated = imbalanced.compare_probabilities(
+        "knownspamfeature knownspamfeature knownspamfeature");
+    assert(std::abs(once.correlation_adjusted_probability -
+        repeated.correlation_adjusted_probability) < 1e-12);
 
     BayesianModel bounded(3);
     bounded.train("alpha beta gamma", true);
@@ -252,6 +406,42 @@ int main() {
     assert(stats.training_receipts == 3);
     assert(stats.vocabulary_size >= 5);
 
+    // Evaluation metrics retain the prediction made before the user confirms a label.
+    const std::string eval_spam_hit(64, 'e');
+    const std::string eval_spam_review(64, 'f');
+    const std::string eval_spam_miss(64, 'g');
+    const std::string eval_ham_false_positive(64, 'h');
+    const std::string eval_ham_hit(64, 'i');
+    const std::string eval_pending(64, 'j');
+    assert(store.record_evaluation_prediction(eval_spam_hit, Verdict::Spam, 80, 0.99, 2, 5, &error, Verdict::Spam, 82));
+    assert(store.complete_evaluation(eval_spam_hit, true, &error));
+    assert(store.record_evaluation_prediction(eval_spam_review, Verdict::Review, 40, 0.80, 2, 5, &error, Verdict::Review, 35));
+    assert(store.complete_evaluation(eval_spam_review, true, &error));
+    assert(store.record_evaluation_prediction(eval_spam_miss, Verdict::Ham, 0, 0.01, 2, 5, &error, Verdict::Ham, 0));
+    assert(store.complete_evaluation(eval_spam_miss, true, &error));
+    assert(store.record_evaluation_prediction(eval_ham_false_positive, Verdict::Spam, 70, 0.95, 2, 5, &error, Verdict::Review, 40));
+    assert(store.complete_evaluation(eval_ham_false_positive, false, &error));
+    assert(store.record_evaluation_prediction(eval_ham_hit, Verdict::Ham, 0, 0.02, 2, 5, &error, Verdict::Ham, 0));
+    assert(store.complete_evaluation(eval_ham_hit, false, &error));
+    assert(store.record_evaluation_prediction(eval_pending, Verdict::Review, 35, 0.65, 2, 5, &error, Verdict::Review, 35));
+    EvaluationStats evaluation_stats;
+    assert(store.get_evaluation_stats(evaluation_stats, &error));
+    assert(evaluation_stats.pending == 1);
+    assert(evaluation_stats.labeled == 5);
+    assert(evaluation_stats.spam_as_ham == 1);
+    assert(evaluation_stats.spam_as_review == 1);
+    assert(evaluation_stats.spam_as_spam == 1);
+    assert(evaluation_stats.ham_as_ham == 1);
+    assert(evaluation_stats.ham_as_review == 0);
+    assert(evaluation_stats.ham_as_spam == 1);
+    assert(evaluation_stats.symbol_labeled == 5);
+    assert(evaluation_stats.symbol_spam_as_ham == 1);
+    assert(evaluation_stats.symbol_spam_as_review == 1);
+    assert(evaluation_stats.symbol_spam_as_spam == 1);
+    assert(evaluation_stats.symbol_ham_as_ham == 1);
+    assert(evaluation_stats.symbol_ham_as_review == 1);
+    assert(evaluation_stats.symbol_ham_as_spam == 0);
+
     std::string integrity;
     assert(store.integrity_check(integrity, &error));
     assert(integrity == "ok");
@@ -264,6 +454,11 @@ int main() {
     assert(reopened.load_model(restored, &error));
     assert(restored.spam_samples() == 1);
     assert(restored.ham_samples() == 2);
+    EvaluationStats reopened_evaluation;
+    assert(reopened.get_evaluation_stats(reopened_evaluation, &error));
+    assert(reopened_evaluation.pending == 1);
+    assert(reopened_evaluation.labeled == 5);
+    assert(reopened_evaluation.symbol_labeled == 5);
     assert(reopened.compact(3, 1, 365, &error));
     assert(reopened.integrity_check(integrity, &error));
     reopened.close();
@@ -273,6 +468,53 @@ int main() {
     std::filesystem::remove(db_path + "-shm");
     std::filesystem::remove(backup_path);
     std::filesystem::remove(db_path + ".precompact.bak");
+
+    // Existing schema-v2 databases must be upgraded in place to schema v4.
+    const auto migration_path = (temp / "becky_antispam_schema_v2.sqlite3").string();
+    std::filesystem::remove(migration_path);
+    std::filesystem::remove(migration_path + "-wal");
+    std::filesystem::remove(migration_path + "-shm");
+    sqlite3* legacy_db = nullptr;
+    assert(sqlite3_open(migration_path.c_str(), &legacy_db) == SQLITE_OK);
+    assert(sqlite3_exec(legacy_db,
+        "CREATE TABLE evaluation_labels ("
+        "message_hash TEXT PRIMARY KEY,label INTEGER NOT NULL,labeled_utc INTEGER NOT NULL);"
+        "PRAGMA user_version=2;", nullptr, nullptr, nullptr) == SQLITE_OK);
+    assert(sqlite3_close(legacy_db) == SQLITE_OK);
+    {
+        SqliteStore migrated(migration_path);
+        assert(migrated.open(&error));
+        EvaluationStats migrated_evaluation;
+        assert(migrated.get_evaluation_stats(migrated_evaluation, &error));
+        assert(migrated_evaluation.pending == 0);
+        assert(migrated_evaluation.labeled == 0);
+        assert(migrated.integrity_check(integrity, &error));
+        assert(integrity == "ok");
+    }
+    {
+        sqlite3* migrated_db = nullptr;
+        assert(sqlite3_open(migration_path.c_str(), &migrated_db) == SQLITE_OK);
+        sqlite3_stmt* version = nullptr;
+        assert(sqlite3_prepare_v2(migrated_db, "PRAGMA user_version", -1, &version, nullptr) == SQLITE_OK);
+        assert(sqlite3_step(version) == SQLITE_ROW);
+        assert(sqlite3_column_int(version, 0) == 4);
+        sqlite3_finalize(version);
+        sqlite3_close(migrated_db);
+    }
+    // Reopening a v4 database must succeed; this catches a stale maximum-version guard.
+    {
+        SqliteStore reopened_v4(migration_path);
+        assert(reopened_v4.open(&error));
+        EvaluationStats reopened_v4_stats;
+        assert(reopened_v4.get_evaluation_stats(reopened_v4_stats, &error));
+        assert(reopened_v4_stats.pending == 0);
+        assert(reopened_v4_stats.labeled == 0);
+        assert(reopened_v4.integrity_check(integrity, &error));
+        assert(integrity == "ok");
+    }
+    std::filesystem::remove(migration_path);
+    std::filesystem::remove(migration_path + "-wal");
+    std::filesystem::remove(migration_path + "-shm");
 
     const auto capped_path = (temp / "becky_antispam_vocab_cap.sqlite3").string();
     std::filesystem::remove(capped_path);
@@ -298,7 +540,10 @@ int main() {
     std::filesystem::remove(pipeline_path + "-shm");
     {
         SqliteStore pipeline_store(pipeline_path);
-        MailPipeline pipeline(pipeline_store);
+        Settings evaluation_settings;
+        evaluation_settings.enable_bayes_comparison = true;
+        evaluation_settings.enable_symbol_comparison = true;
+        MailPipeline pipeline(pipeline_store, evaluation_settings);
         assert(pipeline.initialize(&error));
         for (int i = 0; i < 6; ++i) {
             const auto spam_mail =
@@ -326,13 +571,92 @@ int main() {
             "Subject: 会議資料\r\n"
             "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
             "議事録と予定を共有します";
-        ParsedMail pipeline_parsed;
+        ParsedMail spam_parsed, ham_parsed;
         Result spam_result, ham_result;
-        assert(pipeline.analyze(new_spam, pipeline_parsed, spam_result, &error));
-        assert(pipeline.analyze(new_ham, pipeline_parsed, ham_result, &error));
+        assert(pipeline.analyze(new_spam, spam_parsed, spam_result, &error));
+        assert(pipeline.analyze(new_ham, ham_parsed, ham_result, &error));
         assert(spam_result.bayes_probability > ham_result.bayes_probability);
-        assert(pipeline.train(new_spam, true, nullptr, &error) == TrainStatus::Trained);
-        assert(pipeline.train(new_spam, true, nullptr, &error) == TrainStatus::Duplicate);
+        assert(pipeline.record_prediction(new_spam, spam_result, &error));
+        assert(pipeline.record_prediction(new_ham, ham_result, &error));
+
+        // Evaluation-only labeling must update the confusion-matrix data without
+        // changing the Bayes training corpus.
+        const std::string evaluation_only_mail =
+            "Message-ID: <evaluation-only@example.test>\r\n"
+            "Subject: 会議の確認\r\n"
+            "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
+            "明日の会議について確認します";
+        ParsedMail evaluation_only_parsed;
+        Result evaluation_only_result;
+        assert(pipeline.analyze(evaluation_only_mail, evaluation_only_parsed,
+                                evaluation_only_result, &error));
+        assert(pipeline.record_prediction(evaluation_only_mail, evaluation_only_result,
+                                          &error, true, 101));
+        const auto ham_before_evaluation = pipeline.model().ham_samples();
+        const auto spam_before_evaluation = pipeline.model().spam_samples();
+        bool evaluation_matched = false;
+        EvaluationRecord evaluation_record;
+        assert(pipeline.label_evaluation(evaluation_only_mail, false,
+                                         &evaluation_matched, &error, &evaluation_record));
+        assert(evaluation_matched);
+        assert(evaluation_record.case_number == 101);
+        assert(evaluation_record.predicted_verdict == evaluation_only_result.verdict);
+        assert(evaluation_record.comparison_available);
+        assert(evaluation_record.comparison_verdict == evaluation_only_result.symbol_comparison.verdict);
+        assert(evaluation_record.comparison_v2_available);
+        assert(evaluation_record.comparison_v2_verdict == evaluation_only_result.symbol_experiment.verdict);
+        // Re-running the same test message refreshes its anonymous case mapping
+        // while preserving the already-confirmed actual label.
+        assert(pipeline.record_prediction(evaluation_only_mail, evaluation_only_result,
+                                          &error, true, 103));
+        assert(pipeline.label_evaluation(evaluation_only_mail, false,
+                                         &evaluation_matched, &error, &evaluation_record));
+        assert(evaluation_matched);
+        assert(evaluation_record.case_number == 103);
+        EvaluationStats relabeled_stats;
+        assert(pipeline.get_evaluation_stats(relabeled_stats, &error));
+        assert(relabeled_stats.labeled == 1);
+        assert(relabeled_stats.ham_as_ham + relabeled_stats.ham_as_review +
+               relabeled_stats.ham_as_spam == 1);
+        assert(pipeline.model().ham_samples() == ham_before_evaluation);
+        assert(pipeline.model().spam_samples() == spam_before_evaluation);
+
+        // Production capture may omit the comparison profile when test mode is off.
+        const std::string no_comparison_mail =
+            "Message-ID: <no-comparison@example.test>\r\n"
+            "Subject: 業務連絡\r\n"
+            "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
+            "定例会議の資料を共有します";
+        ParsedMail no_comparison_parsed;
+        Result no_comparison_result;
+        assert(pipeline.analyze(no_comparison_mail, no_comparison_parsed,
+                                no_comparison_result, &error));
+        assert(pipeline.record_prediction(no_comparison_mail, no_comparison_result,
+                                          &error, false, 102));
+        assert(pipeline.label_evaluation(no_comparison_mail, false,
+                                         &evaluation_matched, &error, &evaluation_record));
+        assert(evaluation_matched);
+        assert(evaluation_record.case_number == 102);
+        assert(!evaluation_record.comparison_available);
+        assert(!evaluation_record.comparison_v2_available);
+        assert(pipeline.model().ham_samples() == ham_before_evaluation);
+        assert(pipeline.model().spam_samples() == spam_before_evaluation);
+
+        // Simulate the header inserted by BKC_OnBeforeFilter2 before Becky! saves the mail.
+        const auto saved_spam = "X-AntiSpam-Classification: Spam\r\n" + new_spam + "\r\n";
+        const auto saved_ham = "X-AntiSpam-Classification: Ham\r\n" + new_ham + "\r\n";
+        assert(pipeline.train(saved_spam, true, nullptr, &error) == TrainStatus::Trained);
+        assert(pipeline.train(saved_ham, false, nullptr, &error) == TrainStatus::Trained);
+        EvaluationStats pipeline_evaluation;
+        assert(pipeline.get_evaluation_stats(pipeline_evaluation, &error));
+        assert(pipeline_evaluation.pending == 0);
+        assert(pipeline_evaluation.labeled == 4);
+        assert(pipeline_evaluation.symbol_labeled == 3);
+        assert(pipeline_evaluation.spam_as_spam + pipeline_evaluation.spam_as_review +
+               pipeline_evaluation.spam_as_ham == 1);
+        assert(pipeline_evaluation.ham_as_ham + pipeline_evaluation.ham_as_review +
+               pipeline_evaluation.ham_as_spam == 3);
+        assert(pipeline.train(saved_spam, true, nullptr, &error) == TrainStatus::Duplicate);
     }
     std::filesystem::remove(pipeline_path);
     std::filesystem::remove(pipeline_path + "-wal");

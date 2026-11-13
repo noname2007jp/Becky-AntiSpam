@@ -30,6 +30,8 @@ struct Settings {
     int review_threshold = 30;
     bool enable_authentication_rules = true;
     bool enable_url_rules = true;
+    bool enable_bayes_comparison = false;
+    bool enable_symbol_comparison = false;
     std::vector<BrandRule> brand_rules;
 };
 
@@ -41,10 +43,64 @@ struct Finding {
 
 enum class Verdict { Ham, Review, Spam };
 
+struct SymbolScoreComparison {
+    int score = 0;
+    Verdict verdict = Verdict::Ham;
+    int authentication_score = 0;
+    int header_score = 0;
+    int brand_score = 0;
+    int content_score = 0;
+    int url_score = 0;
+    int bayes_score = 0;
+    std::size_t symbol_count = 0;
+};
+
+// A second, deliberately experimental profile for offline score comparison.
+// It is diagnostic only and is not persisted as an evaluation prediction.
+struct SymbolScoreExperiment {
+    int score = 0;
+    Verdict verdict = Verdict::Ham;
+    int content_score = 0;
+    int url_score = 0;
+    int bayes_score = 0;
+};
+
+struct BayesDiagnostics {
+    std::size_t total_tokens = 0;
+    std::size_t known_tokens = 0;
+    std::size_t unknown_tokens = 0;
+    std::size_t spam_evidence_tokens = 0;
+    std::size_t ham_evidence_tokens = 0;
+    double log_odds = 0.0;
+};
+
+struct BayesComparison {
+    double presence_probability = 0.0;
+    double bernoulli_probability = 0.0;
+    double presence_log_odds = 0.0;
+    double bernoulli_log_odds = 0.0;
+    // Decompose Bernoulli evidence to expose whether absent features dominate.
+    double bernoulli_present_log_odds = 0.0;
+    double bernoulli_absent_log_odds = 0.0;
+    std::size_t bernoulli_present_features = 0;
+    std::size_t bernoulli_absent_features = 0;
+    double correlation_adjusted_probability = 0.0;
+    double correlation_adjusted_log_odds = 0.0;
+    // Evidence lift excludes the corpus prior; useful when Spam is a minority class.
+    double correlation_adjusted_evidence_log_odds = 0.0;
+    double correlation_adjustment_scale = 0.0;
+    std::size_t correlation_adjusted_features = 0;
+    std::size_t vocabulary_features = 0;
+};
+
 struct Result {
     Verdict verdict = Verdict::Ham;
     int score = 0;
     double bayes_probability = 0.0;
+    BayesDiagnostics bayes_diagnostics;
+    BayesComparison bayes_comparison;
+    SymbolScoreComparison symbol_comparison;
+    SymbolScoreExperiment symbol_experiment;
     // Privacy-safe diagnostics: booleans/counts only; never retain matched text or domains.
     std::size_t brand_rules_checked = 0;
     bool brand_rule_matched = false;
@@ -61,7 +117,9 @@ class BayesianModel {
 public:
     explicit BayesianModel(std::size_t max_vocabulary = 50000);
     void train(const std::string& text, bool spam);
-    double spam_probability(const std::string& text) const;
+    double spam_probability(const std::string& text, BayesDiagnostics* diagnostics = nullptr) const;
+    // Offline comparison only; does not change the active classification result.
+    BayesComparison compare_probabilities(const std::string& text) const;
     std::size_t spam_samples() const noexcept { return spam_samples_; }
     std::size_t ham_samples() const noexcept { return ham_samples_; }
     std::size_t vocabulary_size() const noexcept { return words_.size(); }

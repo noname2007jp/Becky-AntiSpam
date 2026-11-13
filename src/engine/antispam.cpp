@@ -6,6 +6,7 @@
 #include <cmath>
 #include <regex>
 #include <unordered_set>
+#include <unordered_map>
 
 namespace beckyas {
 namespace {
@@ -109,6 +110,100 @@ std::size_t count_url_markers(const std::string& text) {
 std::string combined_text(const Message& m) {
     return classifier_text(m);
 }
+
+int capped_family_score(const std::vector<Finding>& findings, const std::string& family,
+                        int cap, std::size_t* symbol_count) {
+    std::unordered_map<std::string, int> unique_symbols;
+    const std::string prefix = family + ".";
+    for (const auto& finding : findings) {
+        if (finding.rule.compare(0, prefix.size(), prefix) != 0) continue;
+        auto& value = unique_symbols[finding.rule];
+        value = std::max(value, finding.score);
+    }
+    if (symbol_count) *symbol_count += unique_symbols.size();
+    int total = 0;
+    for (const auto& item : unique_symbols) total += std::max(0, item.second);
+    return std::min(cap, total);
+}
+
+void calculate_symbol_comparison(Result& result, const Settings& settings) {
+    auto& comparison = result.symbol_comparison;
+    comparison.authentication_score =
+        capped_family_score(result.findings, "auth", 30, &comparison.symbol_count);
+    comparison.header_score =
+        capped_family_score(result.findings, "header", 10, &comparison.symbol_count);
+    comparison.brand_score =
+        capped_family_score(result.findings, "brand", 35, &comparison.symbol_count);
+    comparison.content_score =
+        capped_family_score(result.findings, "content", 25, &comparison.symbol_count);
+    comparison.url_score =
+        capped_family_score(result.findings, "url", 20, &comparison.symbol_count);
+
+    // Exclude the active presence-only Bayes score. This bounded contribution
+    // is diagnostic only and rewards positive evidence above the learned prior.
+    if (settings.enable_bayes_comparison &&
+        result.bayes_comparison.correlation_adjusted_features > 0) {
+        // Score the evidence lift, not the posterior log-odds. A minority Spam
+        // corpus can have a negative prior log-odds even when this message's
+        // learned features strongly favor Spam over Ham.
+        const double positive_evidence = std::max(
+            0.0, result.bayes_comparison.correlation_adjusted_evidence_log_odds);
+        comparison.bayes_score = std::min(20,
+            static_cast<int>(positive_evidence * 6.0 + 0.5));
+    }
+    comparison.score = std::clamp(
+        comparison.authentication_score + comparison.header_score +
+        comparison.brand_score + comparison.content_score +
+        comparison.url_score + comparison.bayes_score, 0, 100);
+    if (comparison.score >= settings.spam_threshold)
+        comparison.verdict = Verdict::Spam;
+    else if (comparison.score >= settings.review_threshold)
+        comparison.verdict = Verdict::Review;
+    else
+        comparison.verdict = Verdict::Ham;
+}
+void calculate_symbol_experiment(Result& result, const Settings& settings) {
+    auto& experiment = result.symbol_experiment;
+    std::unordered_map<std::string, int> content_symbols;
+    std::unordered_map<std::string, int> url_symbols;
+    for (const auto& finding : result.findings) {
+        double multiplier = 1.0;
+        if (finding.rule == "content.generic_lure_url") multiplier = 1.35;
+        else if (finding.rule.compare(0, 8, "content.") == 0) multiplier = 1.25;
+        else if (finding.rule == "url.ip_literal") multiplier = 1.50;
+        else if (finding.rule == "url.multiple") multiplier = 1.25;
+        if (finding.rule.compare(0, 8, "content.") == 0) {
+            auto& value = content_symbols[finding.rule];
+            value = std::max(value, static_cast<int>(std::lround(finding.score * multiplier)));
+        } else if (finding.rule.compare(0, 4, "url.") == 0) {
+            auto& value = url_symbols[finding.rule];
+            value = std::max(value, static_cast<int>(std::lround(finding.score * multiplier)));
+        }
+    }
+    for (const auto& item : content_symbols) experiment.content_score += std::max(0, item.second);
+    for (const auto& item : url_symbols) experiment.url_score += std::max(0, item.second);
+    experiment.content_score = std::min(35, experiment.content_score);
+    experiment.url_score = std::min(25, experiment.url_score);
+    if (settings.enable_bayes_comparison &&
+        result.bayes_comparison.correlation_adjusted_features > 0) {
+        const double positive_evidence = std::max(
+            0.0, result.bayes_comparison.correlation_adjusted_evidence_log_odds);
+        experiment.bayes_score = std::min(30,
+            static_cast<int>(positive_evidence * 13.0 + 0.5));
+    }
+    experiment.score = std::clamp(
+        result.symbol_comparison.authentication_score +
+        result.symbol_comparison.header_score +
+        result.symbol_comparison.brand_score + experiment.content_score +
+        experiment.url_score + experiment.bayes_score, 0, 100);
+    if (experiment.score >= settings.spam_threshold)
+        experiment.verdict = Verdict::Spam;
+    else if (experiment.score >= settings.review_threshold)
+        experiment.verdict = Verdict::Review;
+    else
+        experiment.verdict = Verdict::Ham;
+}
+
 void add(Result& r, const char* id, int score, const char* reason) {
     r.score += score;
     r.findings.push_back({id, score, reason});
@@ -185,7 +280,9 @@ void BayesianModel::decay(double factor) {
     }
 }
 
-double BayesianModel::spam_probability(const std::string& text) const {
+double BayesianModel::spam_probability(const std::string& text,
+                                         BayesDiagnostics* diagnostics) const {
+    if (diagnostics) *diagnostics = {};
     if (spam_samples_ + ham_samples_ == 0) return 0.0;
     const double prior = (static_cast<double>(spam_samples_) + 1.0) /
         (static_cast<double>(spam_samples_ + ham_samples_) + 2.0);
@@ -193,17 +290,116 @@ double BayesianModel::spam_probability(const std::string& text) const {
     double log_ham = std::log(1.0 - prior);
     std::unordered_set<std::string> unique;
     for (const auto& word : tokenize(text)) unique.insert(word);
+    if (diagnostics) diagnostics->total_tokens = unique.size();
+
     for (const auto& word : unique) {
         const auto it = words_.find(word);
-        const double s = it == words_.end() ? 0.0 : static_cast<double>(it->second.spam);
-        const double h = it == words_.end() ? 0.0 : static_cast<double>(it->second.ham);
+        // A token absent from both training classes is unknown, not evidence
+        // for the smaller class. Applying class-specific denominators to
+        // (0,0) counts incorrectly biases every unseen token toward Spam when
+        // ham_samples_ is larger than spam_samples_.
+        if (it == words_.end()) {
+            if (diagnostics) ++diagnostics->unknown_tokens;
+            continue;
+        }
+
+        if (diagnostics) ++diagnostics->known_tokens;
+        const double s = static_cast<double>(it->second.spam);
+        const double h = static_cast<double>(it->second.ham);
         const double p_s = (s + 1.0) / (static_cast<double>(spam_samples_) + 2.0);
         const double p_h = (h + 1.0) / (static_cast<double>(ham_samples_) + 2.0);
+        const double contribution = std::log(p_s) - std::log(p_h);
+        if (diagnostics) {
+            if (contribution > 1e-12) ++diagnostics->spam_evidence_tokens;
+            else if (contribution < -1e-12) ++diagnostics->ham_evidence_tokens;
+        }
         log_spam += std::log(p_s);
         log_ham += std::log(p_h);
     }
-    const double delta = std::clamp(log_ham - log_spam, -40.0, 40.0);
+
+    const double log_odds = log_spam - log_ham;
+    if (diagnostics) diagnostics->log_odds = log_odds;
+    const double delta = std::clamp(-log_odds, -40.0, 40.0);
     return 1.0 / (1.0 + std::exp(delta));
+}
+
+
+BayesComparison BayesianModel::compare_probabilities(const std::string& text) const {
+    BayesComparison result;
+    result.presence_probability = spam_probability(text, nullptr);
+    if (spam_samples_ + ham_samples_ == 0) return result;
+
+    const double prior = (static_cast<double>(spam_samples_) + 1.0) /
+        (static_cast<double>(spam_samples_ + ham_samples_) + 2.0);
+    const double prior_log_odds = std::log(prior / (1.0 - prior));
+    double present_log_odds = 0.0;
+    double absent_log_odds = 0.0;
+    std::unordered_set<std::string> present;
+    for (const auto& token : tokenize(text)) present.insert(token);
+
+    // Bernoulli NB evaluates both presence and absence for each retained
+    // vocabulary feature. Keep the two evidence components separate: with a
+    // large sparse Japanese vocabulary, correlated absent features can
+    // dominate the raw Bernoulli score and make its posterior uninformative.
+    result.vocabulary_features = words_.size();
+    for (const auto& entry : words_) {
+        const double p_spam = (static_cast<double>(entry.second.spam) + 1.0) /
+            (static_cast<double>(spam_samples_) + 2.0);
+        const double p_ham = (static_cast<double>(entry.second.ham) + 1.0) /
+            (static_cast<double>(ham_samples_) + 2.0);
+        if (present.find(entry.first) != present.end()) {
+            present_log_odds += std::log(p_spam) - std::log(p_ham);
+            ++result.bernoulli_present_features;
+        } else {
+            absent_log_odds += std::log1p(-p_spam) - std::log1p(-p_ham);
+        }
+    }
+    result.bernoulli_absent_features =
+        result.vocabulary_features - result.bernoulli_present_features;
+    result.bernoulli_present_log_odds = present_log_odds;
+    result.bernoulli_absent_log_odds = absent_log_odds;
+    result.bernoulli_log_odds =
+        prior_log_odds + present_log_odds + absent_log_odds;
+    const double delta = std::clamp(-result.bernoulli_log_odds, -40.0, 40.0);
+    result.bernoulli_probability = 1.0 / (1.0 + std::exp(delta));
+    BayesDiagnostics diagnostics;
+    spam_probability(text, &diagnostics);
+    result.presence_log_odds = diagnostics.log_odds;
+
+    // Correlation-aware presence comparison:
+    // - smooth each class toward the same corpus-wide token rate, avoiding
+    //   class-size artifacts for tokens seen in only one class;
+    // - average token evidence instead of summing every overlapping Japanese
+    //   bigram as if it were statistically independent.
+    const double total_samples = static_cast<double>(spam_samples_ + ham_samples_);
+    constexpr double smoothing_strength = 5.0;
+    double evidence_sum = 0.0;
+    std::size_t known_features = 0;
+    for (const auto& token : present) {
+        const auto it = words_.find(token);
+        if (it == words_.end()) continue;
+        const double spam_docs = static_cast<double>(it->second.spam);
+        const double ham_docs = static_cast<double>(it->second.ham);
+        const double corpus_rate = (spam_docs + ham_docs + 1.0) /
+            (total_samples + 2.0);
+        const double p_spam = (spam_docs + smoothing_strength * corpus_rate) /
+            (static_cast<double>(spam_samples_) + smoothing_strength);
+        const double p_ham = (ham_docs + smoothing_strength * corpus_rate) /
+            (static_cast<double>(ham_samples_) + smoothing_strength);
+        evidence_sum += std::log(p_spam) - std::log(p_ham);
+        ++known_features;
+    }
+    result.correlation_adjusted_features = known_features;
+    result.correlation_adjustment_scale = known_features == 0
+        ? 0.0 : 1.0 / (static_cast<double>(known_features) + smoothing_strength);
+    result.correlation_adjusted_evidence_log_odds =
+        evidence_sum * result.correlation_adjustment_scale;
+    result.correlation_adjusted_log_odds = prior_log_odds +
+        result.correlation_adjusted_evidence_log_odds;
+    const double correlation_delta =
+        std::clamp(-result.correlation_adjusted_log_odds, -40.0, 40.0);
+    result.correlation_adjusted_probability = 1.0 / (1.0 + std::exp(correlation_delta));
+    return result;
 }
 
 Filter::Filter(Settings settings) : settings_(settings) {}
@@ -355,7 +551,9 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
     }
 
     if (model) {
-        r.bayes_probability = model->spam_probability(text);
+        r.bayes_probability = model->spam_probability(text, &r.bayes_diagnostics);
+        if (settings_.enable_bayes_comparison)
+            r.bayes_comparison = model->compare_probabilities(text);
         if (model->spam_samples() >= 5 && model->ham_samples() >= 5) {
             const int bayes_score = static_cast<int>(std::lround(r.bayes_probability * 40.0));
             if (bayes_score > 0) add(r, "bayes.probability", bayes_score, "学習モデルによる迷惑メール確率");
@@ -366,6 +564,12 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
     if (r.score >= settings_.spam_threshold) r.verdict = Verdict::Spam;
     else if (r.score >= settings_.review_threshold) r.verdict = Verdict::Review;
     else r.verdict = Verdict::Ham;
+
+    // Comparison-only Rspamd-style aggregation; active score/verdict stay intact.
+    if (settings_.enable_symbol_comparison) {
+        calculate_symbol_comparison(r, settings_);
+        calculate_symbol_experiment(r, settings_);
+    }
     return r;
 }
 

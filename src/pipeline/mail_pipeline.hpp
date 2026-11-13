@@ -4,6 +4,7 @@
 #include "message_parser.hpp"
 #include "sqlite_store.hpp"
 
+#include <cstdint>
 #include <string>
 
 namespace beckyas {
@@ -28,6 +29,19 @@ public:
                       bool spam,
                       ParsedMail* parsed = nullptr,
                       std::string* error = nullptr);
+
+    // Persist the pre-training prediction using a canonical raw-message hash.
+    // The plugin's own classification header is excluded from this hash.
+    bool record_prediction(const std::string& raw_message, const Result& result,
+                           std::string* error = nullptr,
+                           bool include_symbol_comparison = true,
+                            std::uint64_t diagnostic_case = 0);
+    // Attach a user-confirmed evaluation label only; never updates the Bayes model.
+    bool label_evaluation(const std::string& raw_message, bool spam,
+                          bool* matched = nullptr, std::string* error = nullptr,
+                           EvaluationRecord* record = nullptr);
+    bool get_evaluation_stats(EvaluationStats& stats,
+                              std::string* error = nullptr) const;
 
     const BayesianModel& model() const noexcept { return model_; }
 

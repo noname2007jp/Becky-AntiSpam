@@ -6,6 +6,7 @@
 #include <array>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <filesystem>
 #include <exception>
 #include <limits>
@@ -141,7 +142,7 @@ bool SqliteStore::open(std::string* error) {
         }
         schema_version = sqlite3_column_int(version.get(), 0);
     }
-    if (schema_version > 2) {
+    if (schema_version > 6) {
         if (error) *error = "未対応のデータベーススキーマです";
         close();
         return false;
@@ -158,6 +159,60 @@ bool SqliteStore::open(std::string* error) {
             " labeled_utc INTEGER NOT NULL);"
             "CREATE INDEX IF NOT EXISTS idx_evaluation_labels_labeled ON evaluation_labels(labeled_utc);"
             "PRAGMA user_version=2;", error)) {
+            close();
+            return false;
+        }
+    }
+    if (schema_version < 3) {
+        if (!exec(db_,
+            "CREATE TABLE IF NOT EXISTS evaluation_results ("
+            " message_hash TEXT PRIMARY KEY CHECK(length(message_hash)=64),"
+            " actual_label INTEGER CHECK(actual_label IS NULL OR actual_label IN (0,1)),"
+            " predicted_verdict INTEGER NOT NULL CHECK(predicted_verdict IN (0,1,2)),"
+            " score INTEGER NOT NULL,"
+            " bayes_probability REAL NOT NULL CHECK(bayes_probability>=0.0 AND bayes_probability<=1.0),"
+            " ham_samples INTEGER NOT NULL DEFAULT 0 CHECK(ham_samples>=0),"
+            " spam_samples INTEGER NOT NULL DEFAULT 0 CHECK(spam_samples>=0),"
+            " predicted_utc INTEGER NOT NULL,"
+            " labeled_utc INTEGER);"
+            "CREATE INDEX IF NOT EXISTS idx_evaluation_results_status_time "
+            "ON evaluation_results(actual_label,predicted_utc);"
+            "PRAGMA user_version=3;", error)) {
+            close();
+            return false;
+        }
+    }
+    if (schema_version < 4) {
+        // Keep the two-column migration atomic. If any statement fails, closing
+        // the connection rolls back instead of leaving a partially upgraded DB.
+        if (!exec(db_,
+            "BEGIN IMMEDIATE;"
+            "ALTER TABLE evaluation_results ADD COLUMN comparison_score INTEGER NOT NULL DEFAULT 0;"
+            "ALTER TABLE evaluation_results ADD COLUMN comparison_verdict INTEGER "
+            "CHECK(comparison_verdict IS NULL OR comparison_verdict IN (0,1,2));"
+            "PRAGMA user_version=4;"
+            "COMMIT;", error)) {
+            close();
+            return false;
+        }
+    }
+    if (schema_version < 5) {
+        if (!exec(db_,
+            "BEGIN IMMEDIATE;"
+            "ALTER TABLE evaluation_results ADD COLUMN diagnostic_case INTEGER NOT NULL DEFAULT 0;"
+            "PRAGMA user_version=5;"
+            "COMMIT;", error)) {
+            close();
+            return false;
+        }
+    }
+    if (schema_version < 6) {
+        if (!exec(db_,
+            "BEGIN IMMEDIATE;"
+            "ALTER TABLE evaluation_results ADD COLUMN comparison_v2_verdict INTEGER "
+            "CHECK(comparison_v2_verdict IS NULL OR comparison_v2_verdict IN (0,1,2));"
+            "PRAGMA user_version=6;"
+            "COMMIT;", error)) {
             close();
             return false;
         }
@@ -365,6 +420,206 @@ bool SqliteStore::set_evaluation_label(const std::string& message_hash,
         set_error(db_, error, "評価ラベルを保存できません");
         return false;
     }
+    return true;
+}
+
+bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
+                                               Verdict predicted,
+                                               int score,
+                                               double bayes_probability,
+                                               std::size_t ham_samples,
+                                               std::size_t spam_samples,
+                                               std::string* error,
+                                               Verdict symbol_verdict,
+                                               int symbol_score,
+                                               bool comparison_available,
+                                               std::uint64_t diagnostic_case,
+                                               Verdict symbol_v2_verdict) {
+    if (!db_) {
+        if (error) *error = "データベースが開かれていません";
+        return false;
+    }
+    if (!valid_hash(message_hash)) {
+        if (error) *error = "message_hashにはSHA-256の64桁16進数を指定してください";
+        return false;
+    }
+    if (!std::isfinite(bayes_probability) ||
+        bayes_probability < 0.0 || bayes_probability > 1.0) {
+        if (error) *error = "Bayes確率は0.0から1.0の範囲で指定してください";
+        return false;
+    }
+
+    const int verdict = static_cast<int>(predicted);
+    const int comparison_verdict = static_cast<int>(symbol_verdict);
+    const int comparison_v2_verdict = static_cast<int>(symbol_v2_verdict);
+    if (verdict < 0 || verdict > 2 || comparison_verdict < 0 || comparison_verdict > 2 ||
+        comparison_v2_verdict < 0 || comparison_v2_verdict > 2) {
+        if (error) *error = "未対応の判定結果です";
+        return false;
+    }
+
+    const auto hash = normalize_hash(message_hash);
+    Statement prediction(db_,
+        "INSERT OR IGNORE INTO evaluation_results("
+        "message_hash,actual_label,predicted_verdict,score,bayes_probability,"
+        "ham_samples,spam_samples,predicted_utc,labeled_utc,comparison_score,comparison_verdict,diagnostic_case,comparison_v2_verdict) "
+        "VALUES(?1,NULL,?2,?3,?4,?5,?6,?7,NULL,?8,?9,?10,?11) "
+        "ON CONFLICT(message_hash) DO UPDATE SET "
+        "predicted_verdict=excluded.predicted_verdict,score=excluded.score,"
+        "bayes_probability=excluded.bayes_probability,ham_samples=excluded.ham_samples,"
+        "spam_samples=excluded.spam_samples,predicted_utc=excluded.predicted_utc,"
+        "comparison_score=excluded.comparison_score,"
+        "comparison_verdict=excluded.comparison_verdict,"
+        "diagnostic_case=excluded.diagnostic_case,"
+        "comparison_v2_verdict=excluded.comparison_v2_verdict "
+        "WHERE excluded.diagnostic_case>0");
+    if (!prediction.ok()) {
+        set_error(db_, error, "評価予測SQLを準備できません");
+        return false;
+    }
+    sqlite3_bind_text(prediction.get(), 1, hash.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(prediction.get(), 2, verdict);
+    sqlite3_bind_int(prediction.get(), 3, score);
+    sqlite3_bind_double(prediction.get(), 4, bayes_probability);
+    sqlite3_bind_int64(prediction.get(), 5, static_cast<sqlite3_int64>(ham_samples));
+    sqlite3_bind_int64(prediction.get(), 6, static_cast<sqlite3_int64>(spam_samples));
+    sqlite3_bind_int64(prediction.get(), 7, now_utc());
+    sqlite3_bind_int(prediction.get(), 8, symbol_score);
+    if (comparison_available)
+        sqlite3_bind_int(prediction.get(), 9, static_cast<int>(symbol_verdict));
+    else
+        sqlite3_bind_null(prediction.get(), 9);
+    sqlite3_bind_int64(prediction.get(), 10, static_cast<sqlite3_int64>(diagnostic_case));
+    if (comparison_available)
+        sqlite3_bind_int(prediction.get(), 11, comparison_v2_verdict);
+    else
+        sqlite3_bind_null(prediction.get(), 11);
+    if (sqlite3_step(prediction.get()) != SQLITE_DONE) {
+        set_error(db_, error, "評価予測を保存できません");
+        return false;
+    }
+
+    // Unlabeled predictions are temporary. Keep the pending queue bounded.
+    Statement expire(db_,
+        "DELETE FROM evaluation_results "
+        "WHERE actual_label IS NULL AND predicted_utc < ?1");
+    if (!expire.ok()) {
+        set_error(db_, error, "期限切れ評価予測SQLを準備できません");
+        return false;
+    }
+    sqlite3_bind_int64(expire.get(), 1, now_utc() - 30LL * 24LL * 60LL * 60LL);
+    if (sqlite3_step(expire.get()) != SQLITE_DONE) {
+        set_error(db_, error, "期限切れ評価予測を整理できません");
+        return false;
+    }
+    return true;
+}
+
+bool SqliteStore::complete_evaluation(const std::string& message_hash,
+                                      bool spam,
+                                      std::string* error,
+                                      bool* matched,
+                                      EvaluationRecord* record) {
+    if (matched) *matched = false;
+    if (record) *record = {};
+    if (!db_) {
+        if (error) *error = "データベースが開かれていません";
+        return false;
+    }
+    if (!valid_hash(message_hash)) {
+        if (error) *error = "message_hashにはSHA-256の64桁16進数を指定してください";
+        return false;
+    }
+    const auto hash = normalize_hash(message_hash);
+    Statement label(db_,
+        "UPDATE evaluation_results SET actual_label=?1,labeled_utc=?2 "
+        "WHERE message_hash=?3");
+    if (!label.ok()) {
+        set_error(db_, error, "評価ラベル確定SQLを準備できません");
+        return false;
+    }
+    sqlite3_bind_int(label.get(), 1, spam ? 1 : 0);
+    sqlite3_bind_int64(label.get(), 2, now_utc());
+    sqlite3_bind_text(label.get(), 3, hash.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(label.get()) != SQLITE_DONE) {
+        set_error(db_, error, "評価ラベルを確定できません");
+        return false;
+    }
+    const bool found = sqlite3_changes(db_) > 0;
+    if (matched) *matched = found;
+    if (found && record) {
+        Statement details(db_,
+            "SELECT diagnostic_case,predicted_verdict,comparison_verdict,comparison_v2_verdict "
+            "FROM evaluation_results WHERE message_hash=?1");
+        if (!details.ok()) {
+            set_error(db_, error, "評価ケース情報SQLを準備できません");
+            return false;
+        }
+        sqlite3_bind_text(details.get(), 1, hash.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(details.get()) != SQLITE_ROW) {
+            set_error(db_, error, "評価ケース情報を取得できません");
+            return false;
+        }
+        record->case_number = static_cast<std::uint64_t>(
+            std::max<sqlite3_int64>(0, sqlite3_column_int64(details.get(), 0)));
+        record->predicted_verdict = static_cast<Verdict>(sqlite3_column_int(details.get(), 1));
+        if (sqlite3_column_type(details.get(), 2) != SQLITE_NULL) {
+            record->comparison_available = true;
+            record->comparison_verdict = static_cast<Verdict>(sqlite3_column_int(details.get(), 2));
+        }
+        if (sqlite3_column_type(details.get(), 3) != SQLITE_NULL) {
+            record->comparison_v2_available = true;
+            record->comparison_v2_verdict = static_cast<Verdict>(sqlite3_column_int(details.get(), 3));
+        }
+    }
+    // No matching prediction is not an error (e.g. mail received before this feature).
+    return true;
+}
+
+bool SqliteStore::get_evaluation_stats(EvaluationStats& stats,
+                                       std::string* error) const {
+    if (!db_) {
+        if (error) *error = "データベースが開かれていません";
+        return false;
+    }
+    stats = {};
+    Statement summary(db_,
+        "SELECT "
+        "(SELECT count(*) FROM evaluation_results WHERE actual_label IS NULL),"
+        "(SELECT count(*) FROM evaluation_results WHERE actual_label IS NOT NULL),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND predicted_verdict=0 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND predicted_verdict=1 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND predicted_verdict=2 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND predicted_verdict=0 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND predicted_verdict=1 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND predicted_verdict=2 THEN 1 ELSE 0 END),0),"
+        "(SELECT count(*) FROM evaluation_results WHERE actual_label IS NOT NULL AND comparison_verdict IS NOT NULL),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND comparison_verdict=0 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND comparison_verdict=1 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND comparison_verdict=2 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_verdict=0 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_verdict=1 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_verdict=2 THEN 1 ELSE 0 END),0) "
+        "FROM evaluation_results WHERE actual_label IS NOT NULL");
+    if (!summary.ok() || sqlite3_step(summary.get()) != SQLITE_ROW) {
+        set_error(db_, error, "評価統計を取得できません");
+        return false;
+    }
+    stats.pending = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 0));
+    stats.labeled = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 1));
+    stats.spam_as_ham = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 2));
+    stats.spam_as_review = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 3));
+    stats.spam_as_spam = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 4));
+    stats.ham_as_ham = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 5));
+    stats.ham_as_review = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 6));
+    stats.ham_as_spam = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 7));
+    stats.symbol_labeled = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 8));
+    stats.symbol_spam_as_ham = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 9));
+    stats.symbol_spam_as_review = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 10));
+    stats.symbol_spam_as_spam = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 11));
+    stats.symbol_ham_as_ham = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 12));
+    stats.symbol_ham_as_review = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 13));
+    stats.symbol_ham_as_spam = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 14));
     return true;
 }
 

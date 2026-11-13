@@ -20,6 +20,36 @@ struct StoreStats {
     std::uint64_t database_bytes = 0;
 };
 
+// Counts compare the saved receive-time prediction with the user's later label.
+// Symbol fields include only rows that contain a comparison_verdict (new test-mode predictions).
+struct EvaluationStats {
+    std::size_t pending = 0;
+    std::size_t labeled = 0;
+    std::size_t spam_as_ham = 0;
+    std::size_t spam_as_review = 0;
+    std::size_t spam_as_spam = 0;
+    std::size_t ham_as_ham = 0;
+    std::size_t ham_as_review = 0;
+    std::size_t ham_as_spam = 0;
+    std::size_t symbol_labeled = 0;
+    std::size_t symbol_spam_as_ham = 0;
+    std::size_t symbol_spam_as_review = 0;
+    std::size_t symbol_spam_as_spam = 0;
+    std::size_t symbol_ham_as_ham = 0;
+    std::size_t symbol_ham_as_review = 0;
+    std::size_t symbol_ham_as_spam = 0;
+};
+
+// Anonymous per-test diagnostic metadata returned when a user labels a message.
+struct EvaluationRecord {
+    std::uint64_t case_number = 0;
+    Verdict predicted_verdict = Verdict::Ham;
+    bool comparison_available = false;
+    Verdict comparison_verdict = Verdict::Ham;
+    bool comparison_v2_available = false;
+    Verdict comparison_v2_verdict = Verdict::Ham;
+};
+
 class SqliteStore {
 public:
     explicit SqliteStore(std::string database_path, std::size_t max_vocabulary = 50000);
@@ -42,6 +72,24 @@ public:
     // Evaluation labels are independent from Bayes training.
     bool set_evaluation_label(const std::string& message_hash, bool spam,
                               std::string* error = nullptr);
+    // symbol_verdict/score are comparison-only values; they never affect active filtering.
+    bool record_evaluation_prediction(const std::string& message_hash,
+                                      Verdict predicted, int score,
+                                      double bayes_probability,
+                                      std::size_t ham_samples,
+                                      std::size_t spam_samples,
+                                      std::string* error = nullptr,
+                                      Verdict symbol_verdict = Verdict::Ham,
+                                      int symbol_score = 0,
+                                      bool comparison_available = true,
+                                      std::uint64_t diagnostic_case = 0,
+                                      Verdict symbol_v2_verdict = Verdict::Ham);
+    bool complete_evaluation(const std::string& message_hash, bool spam,
+                             std::string* error = nullptr,
+                             bool* matched = nullptr,
+                             EvaluationRecord* record = nullptr);
+    bool get_evaluation_stats(EvaluationStats& stats,
+                              std::string* error = nullptr) const;
     bool load_model(BayesianModel& model, std::string* error = nullptr) const;
     bool get_stats(StoreStats& stats, std::string* error = nullptr) const;
 
