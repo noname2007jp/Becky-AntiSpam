@@ -40,6 +40,14 @@ struct EvaluationStats {
     std::size_t symbol_ham_as_spam = 0;
 };
 
+// Anonymous per-test diagnostic metadata returned when a user labels a message.
+struct EvaluationRecord {
+    std::uint64_t case_number = 0;
+    Verdict predicted_verdict = Verdict::Ham;
+    bool comparison_available = false;
+    Verdict comparison_verdict = Verdict::Ham;
+};
+
 class SqliteStore {
 public:
     explicit SqliteStore(std::string database_path, std::size_t max_vocabulary = 50000);
@@ -71,10 +79,12 @@ public:
                                       std::string* error = nullptr,
                                       Verdict symbol_verdict = Verdict::Ham,
                                       int symbol_score = 0,
-                                      bool comparison_available = true);
+                                      bool comparison_available = true,
+                                      std::uint64_t diagnostic_case = 0);
     bool complete_evaluation(const std::string& message_hash, bool spam,
                              std::string* error = nullptr,
-                             bool* matched = nullptr);
+                             bool* matched = nullptr,
+                             EvaluationRecord* record = nullptr);
     bool get_evaluation_stats(EvaluationStats& stats,
                               std::string* error = nullptr) const;
     bool load_model(BayesianModel& model, std::string* error = nullptr) const;
