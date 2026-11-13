@@ -410,7 +410,8 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
                                                std::size_t spam_samples,
                                                std::string* error,
                                                Verdict symbol_verdict,
-                                               int symbol_score) {
+                                               int symbol_score,
+                                               bool comparison_available) {
     if (!db_) {
         if (error) *error = "データベースが開かれていません";
         return false;
@@ -450,7 +451,10 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
     sqlite3_bind_int64(prediction.get(), 6, static_cast<sqlite3_int64>(spam_samples));
     sqlite3_bind_int64(prediction.get(), 7, now_utc());
     sqlite3_bind_int(prediction.get(), 8, symbol_score);
-    sqlite3_bind_int(prediction.get(), 9, static_cast<int>(symbol_verdict));
+    if (comparison_available)
+        sqlite3_bind_int(prediction.get(), 9, static_cast<int>(symbol_verdict));
+    else
+        sqlite3_bind_null(prediction.get(), 9);
     if (sqlite3_step(prediction.get()) != SQLITE_DONE) {
         set_error(db_, error, "評価予測を保存できません");
         return false;
