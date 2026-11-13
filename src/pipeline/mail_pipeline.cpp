@@ -110,6 +110,16 @@ bool MailPipeline::record_prediction(const std::string& raw_message,
         result.symbol_comparison.verdict, result.symbol_comparison.score);
 }
 
+bool MailPipeline::label_evaluation(const std::string& raw_message,
+                                      bool spam,
+                                      bool* matched,
+                                      std::string* error) {
+    if (matched) *matched = false;
+    if (!initialized_ && !initialize(error)) return false;
+    const auto hash = evaluation_message_hash(raw_message);
+    return store_.complete_evaluation(hash, spam, error, matched);
+}
+
 bool MailPipeline::get_evaluation_stats(EvaluationStats& stats,
                                         std::string* error) const {
     return store_.get_evaluation_stats(stats, error);
