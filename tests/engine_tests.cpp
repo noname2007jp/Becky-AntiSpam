@@ -590,13 +590,21 @@ int main() {
         Result evaluation_only_result;
         assert(pipeline.analyze(evaluation_only_mail, evaluation_only_parsed,
                                 evaluation_only_result, &error));
-        assert(pipeline.record_prediction(evaluation_only_mail, evaluation_only_result, &error));
+        assert(pipeline.record_prediction(evaluation_only_mail, evaluation_only_result,
+                                          &error, true, 101));
         const auto ham_before_evaluation = pipeline.model().ham_samples();
         const auto spam_before_evaluation = pipeline.model().spam_samples();
         bool evaluation_matched = false;
+        EvaluationRecord evaluation_record;
         assert(pipeline.label_evaluation(evaluation_only_mail, false,
-                                         &evaluation_matched, &error));
+                                         &evaluation_matched, &error, &evaluation_record));
         assert(evaluation_matched);
+        assert(evaluation_record.case_number == 101);
+        assert(evaluation_record.predicted_verdict == evaluation_only_result.verdict);
+        assert(evaluation_record.comparison_available);
+        assert(evaluation_record.comparison_verdict == evaluation_only_result.symbol_comparison.verdict);
+        assert(evaluation_record.comparison_v2_available);
+        assert(evaluation_record.comparison_v2_verdict == evaluation_only_result.symbol_experiment.verdict);
         assert(pipeline.model().ham_samples() == ham_before_evaluation);
         assert(pipeline.model().spam_samples() == spam_before_evaluation);
 
@@ -611,10 +619,13 @@ int main() {
         assert(pipeline.analyze(no_comparison_mail, no_comparison_parsed,
                                 no_comparison_result, &error));
         assert(pipeline.record_prediction(no_comparison_mail, no_comparison_result,
-                                          &error, false));
+                                          &error, false, 102));
         assert(pipeline.label_evaluation(no_comparison_mail, false,
-                                         &evaluation_matched, &error));
+                                         &evaluation_matched, &error, &evaluation_record));
         assert(evaluation_matched);
+        assert(evaluation_record.case_number == 102);
+        assert(!evaluation_record.comparison_available);
+        assert(!evaluation_record.comparison_v2_available);
         assert(pipeline.model().ham_samples() == ham_before_evaluation);
         assert(pipeline.model().spam_samples() == spam_before_evaluation);
 
