@@ -101,13 +101,15 @@ TrainStatus MailPipeline::train(const std::string& raw_message,
 
 bool MailPipeline::record_prediction(const std::string& raw_message,
                                      const Result& result,
-                                     std::string* error) {
+                                     std::string* error,
+                                     bool include_symbol_comparison) {
     if (!initialized_ && !initialize(error)) return false;
     const auto hash = evaluation_message_hash(raw_message);
     return store_.record_evaluation_prediction(
         hash, result.verdict, result.score, result.bayes_probability,
         model_.ham_samples(), model_.spam_samples(), error,
-        result.symbol_comparison.verdict, result.symbol_comparison.score);
+        result.symbol_comparison.verdict, result.symbol_comparison.score,
+        include_symbol_comparison);
 }
 
 bool MailPipeline::label_evaluation(const std::string& raw_message,
