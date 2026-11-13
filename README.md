@@ -97,11 +97,14 @@ DLLは `build/Release/BeckyAntiSpam.dll` に生成されます。GitHub Actions�
 enabled=1
 [test_mode]
 enabled=0
+[evaluation]
+enabled=1
 ```
 
 - `logging.enabled=1`: 通常ログを `operation.log` に記録（初期値ON、約5MiBでローテーション）
 - `logging.enabled=0`: ファイルログをすべて停止
 - `test_mode.enabled=1`: 詳細ログを `test-detail.log` に、共有用の要約ログを `test-summary.log` に追加記録（初期値OFF、各約20MiBでローテーション）
+- `evaluation.enabled=1`: 受信時の判定結果と一方向ハッシュのみをSQLiteへ記録（初期値ON）。詳細テストログとは独立。メール一覧の右クリックメニューにある「評価用：正常メールとして記録（学習しない）」「評価用：迷惑メールとして記録（学習しない）」で正解ラベルを登録できます。既存の「学習」操作とは別機能で、評価ラベル登録ではBayes学習件数・トークン統計を変更しません。評価対象は受信時点の予測と対応付け、未ラベルの予測は30日後に整理します。
 - `brand-domains.txt` はUTF-8の1行1ルール形式です。`別名1;別名2|許可ドメイン1;許可ドメイン2` と記載します。初回起動時にAmerican Expressの初期ルールを作成します。許可ドメインは完全一致またはそのサブドメインを許可します。
 - ブランド名がSubjectまたはFrom表示名に含まれ、Fromドメインが許可ドメインと一致しない場合は `brand.domain_mismatch` を加点します。本文URLも不一致の場合は `brand.url_domain_mismatch` を加点し、Fromドメインがブランド名に類似する場合は `brand.lookalike_domain` を加点します。
 - Bayes比較のBernoulli診断では、全語彙の出現／不在を評価した生の対数オッズに加え、出現特徴と不在特徴それぞれの件数・対数オッズ寄与を記録します。日本語の大規模・疎な語彙では不在特徴の寄与が支配的になり得るため、Bernoulli確率単独を判定根拠として扱いません。
