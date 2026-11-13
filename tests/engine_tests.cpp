@@ -582,9 +582,9 @@ int main() {
         // Evaluation-only labeling must update the confusion-matrix data without
         // changing the Bayes training corpus.
         const std::string evaluation_only_mail =
-            "Message-ID: <evaluation-only@example.test>\\r\\n"
-            "Subject: 会議の確認\\r\\n"
-            "Content-Type: text/plain; charset=UTF-8\\r\\n\\r\\n"
+            "Message-ID: <evaluation-only@example.test>\r\n"
+            "Subject: 会議の確認\r\n"
+            "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
             "明日の会議について確認します";
         ParsedMail evaluation_only_parsed;
         Result evaluation_only_result;
