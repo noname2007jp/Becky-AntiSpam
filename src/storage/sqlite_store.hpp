@@ -70,7 +70,8 @@ public:
                                       std::size_t spam_samples,
                                       std::string* error = nullptr,
                                       Verdict symbol_verdict = Verdict::Ham,
-                                      int symbol_score = 0);
+                                      int symbol_score = 0,
+                                      bool comparison_available = true);
     bool complete_evaluation(const std::string& message_hash, bool spam,
                              std::string* error = nullptr,
                              bool* matched = nullptr);
