@@ -221,7 +221,8 @@ bool initialize_plugin() {
     g_evaluation_enabled = GetPrivateProfileIntW(L"evaluation", L"enabled", 1, ini.c_str()) != 0;
     operational_log("INFO", std::string("startup logging=") +
         (g_log_settings.enabled ? "on" : "off") + " test_mode=" +
-        (g_log_settings.test_mode ? "on" : "off"));
+        (g_log_settings.test_mode ? "on" : "off") + " evaluation=" +
+        (g_evaluation_enabled ? "on" : "off"));
 
     g_store = std::make_unique<beckyas::SqliteStore>(db_utf8);
     beckyas::Settings classifier_settings;
@@ -379,6 +380,22 @@ void label_selected_messages(bool spam, const char* trigger) {
             " no_prediction=" + std::to_string(unmatched) +
             " failed=" + std::to_string(failed) +
             " training=none");
+
+        beckyas::EvaluationStats evaluation;
+        std::string evaluation_error;
+        if (g_pipeline->get_evaluation_stats(evaluation, &evaluation_error)) {
+            operational_log("INFO", std::string("evaluation metrics pending=") +
+                std::to_string(evaluation.pending) +
+                " labeled=" + std::to_string(evaluation.labeled) +
+                " spam_as_ham=" + std::to_string(evaluation.spam_as_ham) +
+                " spam_as_review=" + std::to_string(evaluation.spam_as_review) +
+                " spam_as_spam=" + std::to_string(evaluation.spam_as_spam) +
+                " ham_as_ham=" + std::to_string(evaluation.ham_as_ham) +
+                " ham_as_review=" + std::to_string(evaluation.ham_as_review) +
+                " ham_as_spam=" + std::to_string(evaluation.ham_as_spam));
+        } else {
+            operational_log("WARN", "evaluation metrics unavailable: " + evaluation_error);
+        }
     } catch (...) {
         operational_log("ERROR", std::string("evaluation labeling callback failed trigger=") + trigger);
     }
