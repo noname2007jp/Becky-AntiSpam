@@ -602,9 +602,9 @@ int main() {
 
         // Production capture may omit the comparison profile when test mode is off.
         const std::string no_comparison_mail =
-            "Message-ID: <no-comparison@example.test>\\r\\n"
-            "Subject: 業務連絡\\r\\n"
-            "Content-Type: text/plain; charset=UTF-8\\r\\n\\r\\n"
+            "Message-ID: <no-comparison@example.test>\r\n"
+            "Subject: 業務連絡\r\n"
+            "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
             "定例会議の資料を共有します";
         ParsedMail no_comparison_parsed;
         Result no_comparison_result;
