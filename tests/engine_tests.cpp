@@ -578,6 +578,28 @@ int main() {
         assert(spam_result.bayes_probability > ham_result.bayes_probability);
         assert(pipeline.record_prediction(new_spam, spam_result, &error));
         assert(pipeline.record_prediction(new_ham, ham_result, &error));
+
+        // Evaluation-only labeling must update the confusion-matrix data without
+        // changing the Bayes training corpus.
+        const std::string evaluation_only_mail =
+            "Message-ID: <evaluation-only@example.test>\\r\\n"
+            "Subject: 会議の確認\\r\\n"
+            "Content-Type: text/plain; charset=UTF-8\\r\\n\\r\\n"
+            "明日の会議について確認します";
+        ParsedMail evaluation_only_parsed;
+        Result evaluation_only_result;
+        assert(pipeline.analyze(evaluation_only_mail, evaluation_only_parsed,
+                                evaluation_only_result, &error));
+        assert(pipeline.record_prediction(evaluation_only_mail, evaluation_only_result, &error));
+        const auto ham_before_evaluation = pipeline.model().ham_samples();
+        const auto spam_before_evaluation = pipeline.model().spam_samples();
+        bool evaluation_matched = false;
+        assert(pipeline.label_evaluation(evaluation_only_mail, false,
+                                         &evaluation_matched, &error));
+        assert(evaluation_matched);
+        assert(pipeline.model().ham_samples() == ham_before_evaluation);
+        assert(pipeline.model().spam_samples() == spam_before_evaluation);
+
         // Simulate the header inserted by BKC_OnBeforeFilter2 before Becky! saves the mail.
         const auto saved_spam = "X-AntiSpam-Classification: Spam\r\n" + new_spam + "\r\n";
         const auto saved_ham = "X-AntiSpam-Classification: Ham\r\n" + new_ham + "\r\n";
@@ -586,12 +608,12 @@ int main() {
         EvaluationStats pipeline_evaluation;
         assert(pipeline.get_evaluation_stats(pipeline_evaluation, &error));
         assert(pipeline_evaluation.pending == 0);
-        assert(pipeline_evaluation.labeled == 2);
-        assert(pipeline_evaluation.symbol_labeled == 2);
+        assert(pipeline_evaluation.labeled == 3);
+        assert(pipeline_evaluation.symbol_labeled == 3);
         assert(pipeline_evaluation.spam_as_spam + pipeline_evaluation.spam_as_review +
                pipeline_evaluation.spam_as_ham == 1);
         assert(pipeline_evaluation.ham_as_ham + pipeline_evaluation.ham_as_review +
-               pipeline_evaluation.ham_as_spam == 1);
+               pipeline_evaluation.ham_as_spam == 2);
         assert(pipeline.train(saved_spam, true, nullptr, &error) == TrainStatus::Duplicate);
     }
     std::filesystem::remove(pipeline_path);
