@@ -463,7 +463,16 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
         "INSERT OR IGNORE INTO evaluation_results("
         "message_hash,actual_label,predicted_verdict,score,bayes_probability,"
         "ham_samples,spam_samples,predicted_utc,labeled_utc,comparison_score,comparison_verdict,diagnostic_case,comparison_v2_verdict) "
-        "VALUES(?1,NULL,?2,?3,?4,?5,?6,?7,NULL,?8,?9,?10,?11)");
+        "VALUES(?1,NULL,?2,?3,?4,?5,?6,?7,NULL,?8,?9,?10,?11) "
+        "ON CONFLICT(message_hash) DO UPDATE SET "
+        "predicted_verdict=excluded.predicted_verdict,score=excluded.score,"
+        "bayes_probability=excluded.bayes_probability,ham_samples=excluded.ham_samples,"
+        "spam_samples=excluded.spam_samples,predicted_utc=excluded.predicted_utc,"
+        "comparison_score=excluded.comparison_score,"
+        "comparison_verdict=excluded.comparison_verdict,"
+        "diagnostic_case=excluded.diagnostic_case,"
+        "comparison_v2_verdict=excluded.comparison_v2_verdict "
+        "WHERE excluded.diagnostic_case>0");
     if (!prediction.ok()) {
         set_error(db_, error, "評価予測SQLを準備できません");
         return false;
