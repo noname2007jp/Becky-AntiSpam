@@ -21,6 +21,7 @@
 #include <cctype>
 #include <unordered_map>
 #include <array>
+#include <chrono>
 
 int show_plugin_setup(HWND);
 
@@ -219,6 +220,13 @@ bool initialize_plugin() {
     g_log_settings.enabled = GetPrivateProfileIntW(L"logging", L"enabled", 1, ini.c_str()) != 0;
     g_log_settings.test_mode = GetPrivateProfileIntW(L"test_mode", L"enabled", 0, ini.c_str()) != 0;
     g_evaluation_enabled = GetPrivateProfileIntW(L"evaluation", L"enabled", 1, ini.c_str()) != 0;
+    if (g_log_settings.test_mode && g_test_case_sequence == 0) {
+        // Keep case numbers unique across plugin restarts while remaining numeric
+        // and compact enough for the summary and evaluation logs.
+        const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        g_test_case_sequence = static_cast<std::uint64_t>(now_ms) * 1000u;
+    }
     operational_log("INFO", std::string("startup logging=") +
         (g_log_settings.enabled ? "on" : "off") + " test_mode=" +
         (g_log_settings.test_mode ? "on" : "off") + " evaluation=" +
