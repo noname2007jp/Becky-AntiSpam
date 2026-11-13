@@ -691,7 +691,8 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
         // Store only a one-way hash and prediction metadata; no message content is retained.
         // This capture is independent from diagnostic test logging and Bayes training.
         if (g_evaluation_enabled &&
-            !g_pipeline->record_prediction(source, result, &error)) {
+            !g_pipeline->record_prediction(source, result, &error,
+                                           g_log_settings.test_mode)) {
             operational_log("WARN", "evaluation prediction not stored: " + error);
         }
 
