@@ -142,7 +142,7 @@ bool SqliteStore::open(std::string* error) {
         }
         schema_version = sqlite3_column_int(version.get(), 0);
     }
-    if (schema_version > 4) {
+    if (schema_version > 5) {
         if (error) *error = "未対応のデータベーススキーマです";
         close();
         return false;
@@ -191,6 +191,16 @@ bool SqliteStore::open(std::string* error) {
             "ALTER TABLE evaluation_results ADD COLUMN comparison_verdict INTEGER "
             "CHECK(comparison_verdict IS NULL OR comparison_verdict IN (0,1,2));"
             "PRAGMA user_version=4;"
+            "COMMIT;", error)) {
+            close();
+            return false;
+        }
+    }
+    if (schema_version < 5) {
+        if (!exec(db_,
+            "BEGIN IMMEDIATE;"
+            "ALTER TABLE evaluation_results ADD COLUMN diagnostic_case INTEGER NOT NULL DEFAULT 0;"
+            "PRAGMA user_version=5;"
             "COMMIT;", error)) {
             close();
             return false;
@@ -411,7 +421,8 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
                                                std::string* error,
                                                Verdict symbol_verdict,
                                                int symbol_score,
-                                               bool comparison_available) {
+                                               bool comparison_available,
+                                               std::uint64_t diagnostic_case) {
     if (!db_) {
         if (error) *error = "データベースが開かれていません";
         return false;
@@ -437,8 +448,8 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
     Statement prediction(db_,
         "INSERT OR IGNORE INTO evaluation_results("
         "message_hash,actual_label,predicted_verdict,score,bayes_probability,"
-        "ham_samples,spam_samples,predicted_utc,labeled_utc,comparison_score,comparison_verdict) "
-        "VALUES(?1,NULL,?2,?3,?4,?5,?6,?7,NULL,?8,?9)");
+        "ham_samples,spam_samples,predicted_utc,labeled_utc,comparison_score,comparison_verdict,diagnostic_case) "
+        "VALUES(?1,NULL,?2,?3,?4,?5,?6,?7,NULL,?8,?9,?10)");
     if (!prediction.ok()) {
         set_error(db_, error, "評価予測SQLを準備できません");
         return false;
@@ -455,6 +466,7 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
         sqlite3_bind_int(prediction.get(), 9, static_cast<int>(symbol_verdict));
     else
         sqlite3_bind_null(prediction.get(), 9);
+    sqlite3_bind_int64(prediction.get(), 10, static_cast<sqlite3_int64>(diagnostic_case));
     if (sqlite3_step(prediction.get()) != SQLITE_DONE) {
         set_error(db_, error, "評価予測を保存できません");
         return false;
@@ -479,8 +491,10 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
 bool SqliteStore::complete_evaluation(const std::string& message_hash,
                                       bool spam,
                                       std::string* error,
-                                      bool* matched) {
+                                      bool* matched,
+                                      EvaluationRecord* record) {
     if (matched) *matched = false;
+    if (record) *record = {};
     if (!db_) {
         if (error) *error = "データベースが開かれていません";
         return false;
@@ -504,7 +518,29 @@ bool SqliteStore::complete_evaluation(const std::string& message_hash,
         set_error(db_, error, "評価ラベルを確定できません");
         return false;
     }
-    if (matched) *matched = sqlite3_changes(db_) > 0;
+    const bool found = sqlite3_changes(db_) > 0;
+    if (matched) *matched = found;
+    if (found && record) {
+        Statement details(db_,
+            "SELECT diagnostic_case,predicted_verdict,comparison_verdict "
+            "FROM evaluation_results WHERE message_hash=?1");
+        if (!details.ok()) {
+            set_error(db_, error, "評価ケース情報SQLを準備できません");
+            return false;
+        }
+        sqlite3_bind_text(details.get(), 1, hash.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(details.get()) != SQLITE_ROW) {
+            set_error(db_, error, "評価ケース情報を取得できません");
+            return false;
+        }
+        record->case_number = static_cast<std::uint64_t>(
+            std::max<sqlite3_int64>(0, sqlite3_column_int64(details.get(), 0)));
+        record->predicted_verdict = static_cast<Verdict>(sqlite3_column_int(details.get(), 1));
+        if (sqlite3_column_type(details.get(), 2) != SQLITE_NULL) {
+            record->comparison_available = true;
+            record->comparison_verdict = static_cast<Verdict>(sqlite3_column_int(details.get(), 2));
+        }
+    }
     // No matching prediction is not an error (e.g. mail received before this feature).
     return true;
 }
