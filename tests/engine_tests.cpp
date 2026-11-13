@@ -605,6 +605,19 @@ int main() {
         assert(evaluation_record.comparison_verdict == evaluation_only_result.symbol_comparison.verdict);
         assert(evaluation_record.comparison_v2_available);
         assert(evaluation_record.comparison_v2_verdict == evaluation_only_result.symbol_experiment.verdict);
+        // Re-running the same test message refreshes its anonymous case mapping
+        // while preserving the already-confirmed actual label.
+        assert(pipeline.record_prediction(evaluation_only_mail, evaluation_only_result,
+                                          &error, true, 103));
+        assert(pipeline.label_evaluation(evaluation_only_mail, false,
+                                         &evaluation_matched, &error, &evaluation_record));
+        assert(evaluation_matched);
+        assert(evaluation_record.case_number == 103);
+        EvaluationStats relabeled_stats;
+        assert(pipeline.get_evaluation_stats(relabeled_stats, &error));
+        assert(relabeled_stats.labeled == 1);
+        assert(relabeled_stats.ham_as_ham + relabeled_stats.ham_as_review +
+               relabeled_stats.ham_as_spam == 1);
         assert(pipeline.model().ham_samples() == ham_before_evaluation);
         assert(pipeline.model().spam_samples() == spam_before_evaluation);
 
