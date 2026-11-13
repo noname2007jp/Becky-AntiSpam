@@ -474,7 +474,9 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
 
 bool SqliteStore::complete_evaluation(const std::string& message_hash,
                                       bool spam,
-                                      std::string* error) {
+                                      std::string* error,
+                                      bool* matched) {
+    if (matched) *matched = false;
     if (!db_) {
         if (error) *error = "データベースが開かれていません";
         return false;
@@ -498,6 +500,7 @@ bool SqliteStore::complete_evaluation(const std::string& message_hash,
         set_error(db_, error, "評価ラベルを確定できません");
         return false;
     }
+    if (matched) *matched = sqlite3_changes(db_) > 0;
     // No matching prediction is not an error (e.g. mail received before this feature).
     return true;
 }
