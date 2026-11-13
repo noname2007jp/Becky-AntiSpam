@@ -365,12 +365,34 @@ void label_selected_messages(bool spam, const char* trigger) {
 
             std::string error;
             bool matched = false;
-            if (!g_pipeline->label_evaluation(raw, spam, &matched, &error)) {
+            beckyas::EvaluationRecord evaluation_record;
+            if (!g_pipeline->label_evaluation(raw, spam, &matched, &error,
+                                               &evaluation_record)) {
                 ++failed;
                 continue;
             }
-            if (matched) ++labeled;
-            else ++unmatched;
+            if (matched) {
+                ++labeled;
+                // Correlate only anonymous test case numbers with the confirmed
+                // label and saved comparison verdicts. Never log message identity.
+                if (evaluation_record.case_number > 0) {
+                    const auto verdict_name = [](beckyas::Verdict verdict) {
+                        return verdict == beckyas::Verdict::Spam ? "Spam" :
+                            verdict == beckyas::Verdict::Review ? "Review" : "Ham";
+                    };
+                    operational_log("INFO",
+                        std::string("evaluation-case case=") +
+                        std::to_string(evaluation_record.case_number) +
+                        " actual=" + (spam ? "Spam" : "Ham") +
+                        " active=" + verdict_name(evaluation_record.predicted_verdict) +
+                        " symbol_v1=" + (evaluation_record.comparison_available
+                            ? verdict_name(evaluation_record.comparison_verdict) : "NA") +
+                        " symbol_v2=" + (evaluation_record.comparison_v2_available
+                            ? verdict_name(evaluation_record.comparison_v2_verdict) : "NA"));
+                }
+            } else {
+                ++unmatched;
+            }
         }
 
         operational_log("INFO", std::string("evaluation label trigger=") + trigger +
@@ -692,7 +714,8 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
         // This capture is independent from diagnostic test logging and Bayes training.
         if (g_evaluation_enabled &&
             !g_pipeline->record_prediction(source, result, &error,
-                                           g_log_settings.test_mode)) {
+                                           g_log_settings.test_mode,
+                                           test_case_number)) {
             operational_log("WARN", "evaluation prediction not stored: " + error);
         }
 
