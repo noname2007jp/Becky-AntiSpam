@@ -45,6 +45,7 @@ std::unique_ptr<beckyas::MailPipeline> g_pipeline;
 std::filesystem::path g_data_dir, g_audit_log, g_debug_log, g_summary_log;
 std::uint64_t g_test_case_sequence = 0;
 LogSettings g_log_settings;
+bool g_evaluation_enabled = true;
 using BeckyAllocFn = LPVOID (WINAPI*)(DWORD);
 BeckyAllocFn g_becky_alloc = nullptr;
 using BeckyGetWindowHandlesFn = BOOL (WINAPI*)(HWND*, HWND*, HWND*, HWND*);
@@ -217,6 +218,7 @@ bool initialize_plugin() {
         ? spam_key[0] - L'a' + L'A' : spam_key[0];
     g_log_settings.enabled = GetPrivateProfileIntW(L"logging", L"enabled", 1, ini.c_str()) != 0;
     g_log_settings.test_mode = GetPrivateProfileIntW(L"test_mode", L"enabled", 0, ini.c_str()) != 0;
+    g_evaluation_enabled = GetPrivateProfileIntW(L"evaluation", L"enabled", 1, ini.c_str()) != 0;
     operational_log("INFO", std::string("startup logging=") +
         (g_log_settings.enabled ? "on" : "off") + " test_mode=" +
         (g_log_settings.test_mode ? "on" : "off"));
@@ -326,6 +328,69 @@ void CALLBACK menu_train_spam(HWND, LPARAM) {
     train_selected_messages(true, "context-menu");
 }
 
+void label_selected_messages(bool spam, const char* trigger) {
+    try {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (!g_pipeline && !initialize_plugin()) {
+            operational_log("ERROR", "evaluation labeling skipped: pipeline unavailable");
+            return;
+        }
+        if (!g_becky_get_next_mail || !g_becky_get_source || !g_becky_free) {
+            operational_log("ERROR", "evaluation labeling skipped: Becky! mail APIs unavailable");
+            return;
+        }
+
+        std::size_t selected = 0, labeled = 0, unmatched = 0, failed = 0;
+        int position = -1;
+        for (std::size_t guard = 0; guard < 10000; ++guard) {
+            std::array<char, 1024> mail_id{};
+            const int next = g_becky_get_next_mail(position, mail_id.data(),
+                                                   static_cast<int>(mail_id.size()), TRUE);
+            if (next == -1) break;
+            position = next;
+            if (mail_id[0] == '\0') { ++failed; continue; }
+            ++selected;
+
+            LPSTR source = g_becky_get_source(mail_id.data());
+            if (!source) { ++failed; continue; }
+            const void* terminator = std::memchr(source, '\0', kMaxMessageBytes + 1);
+            if (!terminator) {
+                g_becky_free(source);
+                ++failed;
+                continue;
+            }
+            std::string raw(source, static_cast<const char*>(terminator) - source);
+            g_becky_free(source);
+
+            std::string error;
+            bool matched = false;
+            if (!g_pipeline->label_evaluation(raw, spam, &matched, &error)) {
+                ++failed;
+                continue;
+            }
+            if (matched) ++labeled;
+            else ++unmatched;
+        }
+
+        operational_log("INFO", std::string("evaluation label trigger=") + trigger +
+            " label=" + (spam ? "spam" : "ham") +
+            " selected=" + std::to_string(selected) +
+            " labeled=" + std::to_string(labeled) +
+            " no_prediction=" + std::to_string(unmatched) +
+            " failed=" + std::to_string(failed) +
+            " training=none");
+    } catch (...) {
+        operational_log("ERROR", std::string("evaluation labeling callback failed trigger=") + trigger);
+    }
+}
+
+void CALLBACK menu_evaluate_ham(HWND, LPARAM) {
+    label_selected_messages(false, "context-menu");
+}
+void CALLBACK menu_evaluate_spam(HWND, LPARAM) {
+    label_selected_messages(true, "context-menu");
+}
+
 } // namespace
 
 
@@ -369,8 +434,12 @@ int WINAPI BKC_OnMenuInit(HWND, HMENU menu, int type) {
         "Train selected messages as Ham", type, menu_train_ham);
     const UINT spam_id = g_becky_register_command(
         "Train selected messages as Spam", type, menu_train_spam);
+    const UINT eval_ham_id = g_becky_register_command(
+        "Record selected messages as Ham (no training)", type, menu_evaluate_ham);
+    const UINT eval_spam_id = g_becky_register_command(
+        "Record selected messages as Spam (no training)", type, menu_evaluate_spam);
 
-    if (!ham_id && !spam_id) return 0;
+    if (!ham_id && !spam_id && !eval_ham_id && !eval_spam_id) return 0;
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     if (ham_id) {
         const std::wstring label = std::wstring(L"正常メールとして学習 (") +
@@ -382,6 +451,13 @@ int WINAPI BKC_OnMenuInit(HWND, HMENU menu, int type) {
             static_cast<wchar_t>(g_spam_key) + L")";
         AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(spam_id), label.c_str());
     }
+    if (eval_ham_id || eval_spam_id) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    if (eval_ham_id)
+        AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(eval_ham_id),
+                    L"評価用：正常メールとして記録（学習しない）");
+    if (eval_spam_id)
+        AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(eval_spam_id),
+                    L"評価用：迷惑メールとして記録（学習しない）");
     return 0;
 }
 int WINAPI BKC_OnPlugInSetup(HWND hwnd) {
@@ -595,9 +671,9 @@ int WINAPI BKC_OnBeforeFilter2(LPCSTR message, LPCSTR, int* action, char** param
             return kFilterPass;
         }
 
-        // Evaluation mode stores only a one-way hash and the prediction metadata.
-        // The user's later Ham/Spam training action supplies the ground-truth label.
-        if (g_log_settings.test_mode &&
+        // Store only a one-way hash and prediction metadata; no message content is retained.
+        // This capture is independent from diagnostic test logging and Bayes training.
+        if (g_evaluation_enabled &&
             !g_pipeline->record_prediction(source, result, &error)) {
             operational_log("WARN", "evaluation prediction not stored: " + error);
         }
