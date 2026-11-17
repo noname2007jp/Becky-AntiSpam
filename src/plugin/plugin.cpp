@@ -321,7 +321,14 @@ void train_selected_messages(bool spam, const char* trigger) {
                 " symbol_spam_as_spam=" + std::to_string(evaluation.symbol_spam_as_spam) +
                 " symbol_ham_as_ham=" + std::to_string(evaluation.symbol_ham_as_ham) +
                 " symbol_ham_as_review=" + std::to_string(evaluation.symbol_ham_as_review) +
-                " symbol_ham_as_spam=" + std::to_string(evaluation.symbol_ham_as_spam));
+                " symbol_ham_as_spam=" + std::to_string(evaluation.symbol_ham_as_spam) +
+                " symbol_v2_labeled=" + std::to_string(evaluation.symbol_v2_labeled) +
+                " symbol_v2_spam_as_ham=" + std::to_string(evaluation.symbol_v2_spam_as_ham) +
+                " symbol_v2_spam_as_review=" + std::to_string(evaluation.symbol_v2_spam_as_review) +
+                " symbol_v2_spam_as_spam=" + std::to_string(evaluation.symbol_v2_spam_as_spam) +
+                " symbol_v2_ham_as_ham=" + std::to_string(evaluation.symbol_v2_ham_as_ham) +
+                " symbol_v2_ham_as_review=" + std::to_string(evaluation.symbol_v2_ham_as_review) +
+                " symbol_v2_ham_as_spam=" + std::to_string(evaluation.symbol_v2_ham_as_spam));
         } else {
             operational_log("WARN", "evaluation metrics unavailable: " + evaluation_error);
         }
@@ -422,7 +429,21 @@ void label_selected_messages(bool spam, const char* trigger) {
                 " spam_as_spam=" + std::to_string(evaluation.spam_as_spam) +
                 " ham_as_ham=" + std::to_string(evaluation.ham_as_ham) +
                 " ham_as_review=" + std::to_string(evaluation.ham_as_review) +
-                " ham_as_spam=" + std::to_string(evaluation.ham_as_spam));
+                " ham_as_spam=" + std::to_string(evaluation.ham_as_spam) +
+                " symbol_labeled=" + std::to_string(evaluation.symbol_labeled) +
+                " symbol_spam_as_ham=" + std::to_string(evaluation.symbol_spam_as_ham) +
+                " symbol_spam_as_review=" + std::to_string(evaluation.symbol_spam_as_review) +
+                " symbol_spam_as_spam=" + std::to_string(evaluation.symbol_spam_as_spam) +
+                " symbol_ham_as_ham=" + std::to_string(evaluation.symbol_ham_as_ham) +
+                " symbol_ham_as_review=" + std::to_string(evaluation.symbol_ham_as_review) +
+                " symbol_ham_as_spam=" + std::to_string(evaluation.symbol_ham_as_spam) +
+                " symbol_v2_labeled=" + std::to_string(evaluation.symbol_v2_labeled) +
+                " symbol_v2_spam_as_ham=" + std::to_string(evaluation.symbol_v2_spam_as_ham) +
+                " symbol_v2_spam_as_review=" + std::to_string(evaluation.symbol_v2_spam_as_review) +
+                " symbol_v2_spam_as_spam=" + std::to_string(evaluation.symbol_v2_spam_as_spam) +
+                " symbol_v2_ham_as_ham=" + std::to_string(evaluation.symbol_v2_ham_as_ham) +
+                " symbol_v2_ham_as_review=" + std::to_string(evaluation.symbol_v2_ham_as_review) +
+                " symbol_v2_ham_as_spam=" + std::to_string(evaluation.symbol_v2_ham_as_spam));
         } else {
             operational_log("WARN", "evaluation metrics unavailable: " + evaluation_error);
         }
