@@ -599,7 +599,14 @@ bool SqliteStore::get_evaluation_stats(EvaluationStats& stats,
         "COALESCE(SUM(CASE WHEN actual_label=1 AND comparison_verdict=2 THEN 1 ELSE 0 END),0),"
         "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_verdict=0 THEN 1 ELSE 0 END),0),"
         "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_verdict=1 THEN 1 ELSE 0 END),0),"
-        "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_verdict=2 THEN 1 ELSE 0 END),0) "
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_verdict=2 THEN 1 ELSE 0 END),0),"
+        "(SELECT count(*) FROM evaluation_results WHERE actual_label IS NOT NULL AND comparison_v2_verdict IS NOT NULL),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND comparison_v2_verdict=0 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND comparison_v2_verdict=1 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=1 AND comparison_v2_verdict=2 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_v2_verdict=0 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_v2_verdict=1 THEN 1 ELSE 0 END),0),"
+        "COALESCE(SUM(CASE WHEN actual_label=0 AND comparison_v2_verdict=2 THEN 1 ELSE 0 END),0) "
         "FROM evaluation_results WHERE actual_label IS NOT NULL");
     if (!summary.ok() || sqlite3_step(summary.get()) != SQLITE_ROW) {
         set_error(db_, error, "評価統計を取得できません");
@@ -620,6 +627,13 @@ bool SqliteStore::get_evaluation_stats(EvaluationStats& stats,
     stats.symbol_ham_as_ham = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 12));
     stats.symbol_ham_as_review = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 13));
     stats.symbol_ham_as_spam = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 14));
+    stats.symbol_v2_labeled = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 15));
+    stats.symbol_v2_spam_as_ham = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 16));
+    stats.symbol_v2_spam_as_review = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 17));
+    stats.symbol_v2_spam_as_spam = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 18));
+    stats.symbol_v2_ham_as_ham = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 19));
+    stats.symbol_v2_ham_as_review = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 20));
+    stats.symbol_v2_ham_as_spam = static_cast<std::size_t>(sqlite3_column_int64(summary.get(), 21));
     return true;
 }
 
