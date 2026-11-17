@@ -652,6 +652,13 @@ int main() {
         assert(pipeline_evaluation.pending == 0);
         assert(pipeline_evaluation.labeled == 4);
         assert(pipeline_evaluation.symbol_labeled == 3);
+        assert(pipeline_evaluation.symbol_v2_labeled == 3);
+        assert(pipeline_evaluation.symbol_v2_spam_as_ham +
+               pipeline_evaluation.symbol_v2_spam_as_review +
+               pipeline_evaluation.symbol_v2_spam_as_spam == 1);
+        assert(pipeline_evaluation.symbol_v2_ham_as_ham +
+               pipeline_evaluation.symbol_v2_ham_as_review +
+               pipeline_evaluation.symbol_v2_ham_as_spam == 2);
         assert(pipeline_evaluation.spam_as_spam + pipeline_evaluation.spam_as_review +
                pipeline_evaluation.spam_as_ham == 1);
         assert(pipeline_evaluation.ham_as_ham + pipeline_evaluation.ham_as_review +
