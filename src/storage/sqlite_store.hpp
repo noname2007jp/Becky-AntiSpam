@@ -38,6 +38,13 @@ struct EvaluationStats {
     std::size_t symbol_ham_as_ham = 0;
     std::size_t symbol_ham_as_review = 0;
     std::size_t symbol_ham_as_spam = 0;
+    std::size_t symbol_v2_labeled = 0;
+    std::size_t symbol_v2_spam_as_ham = 0;
+    std::size_t symbol_v2_spam_as_review = 0;
+    std::size_t symbol_v2_spam_as_spam = 0;
+    std::size_t symbol_v2_ham_as_ham = 0;
+    std::size_t symbol_v2_ham_as_review = 0;
+    std::size_t symbol_v2_ham_as_spam = 0;
 };
 
 // Anonymous per-test diagnostic metadata returned when a user labels a message.
