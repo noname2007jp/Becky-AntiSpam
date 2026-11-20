@@ -423,7 +423,23 @@ int main() {
     assert(store.complete_evaluation(eval_ham_false_positive, false, &error));
     assert(store.record_evaluation_prediction(eval_ham_hit, Verdict::Ham, 0, 0.02, 2, 5, &error, Verdict::Ham, 0));
     assert(store.complete_evaluation(eval_ham_hit, false, &error));
-    assert(store.record_evaluation_prediction(eval_pending, Verdict::Review, 35, 0.65, 2, 5, &error, Verdict::Review, 35));
+    assert(store.record_evaluation_prediction(eval_pending, Verdict::Review, 35, 0.65, 2, 5,
+        &error, Verdict::Review, 35, true, 0, Verdict::Review, 0.42, 0.25, 7, true));
+    // Correlation-adjusted Bayes shadow values are persisted separately from
+    // the active verdict and can be read without changing training data.
+    sqlite3* shadow_db = nullptr;
+    assert(sqlite3_open(db_path.c_str(), &shadow_db) == SQLITE_OK);
+    sqlite3_stmt* shadow_row = nullptr;
+    assert(sqlite3_prepare_v2(shadow_db,
+        "SELECT bayes_corr_probability,bayes_corr_evidence,bayes_corr_features "
+        "FROM evaluation_results WHERE message_hash=?1", -1, &shadow_row, nullptr) == SQLITE_OK);
+    sqlite3_bind_text(shadow_row, 1, eval_pending.c_str(), -1, SQLITE_TRANSIENT);
+    assert(sqlite3_step(shadow_row) == SQLITE_ROW);
+    assert(std::abs(sqlite3_column_double(shadow_row, 0) - 0.42) < 1e-12);
+    assert(std::abs(sqlite3_column_double(shadow_row, 1) - 0.25) < 1e-12);
+    assert(sqlite3_column_int(shadow_row, 2) == 7);
+    sqlite3_finalize(shadow_row);
+    sqlite3_close(shadow_db);
     EvaluationStats evaluation_stats;
     assert(store.get_evaluation_stats(evaluation_stats, &error));
     assert(evaluation_stats.pending == 1);
@@ -469,7 +485,7 @@ int main() {
     std::filesystem::remove(backup_path);
     std::filesystem::remove(db_path + ".precompact.bak");
 
-    // Existing schema-v2 databases must be upgraded in place to schema v4.
+    // Existing schema-v2 databases must be upgraded in place to the current schema.
     const auto migration_path = (temp / "becky_antispam_schema_v2.sqlite3").string();
     std::filesystem::remove(migration_path);
     std::filesystem::remove(migration_path + "-wal");
@@ -497,19 +513,19 @@ int main() {
         sqlite3_stmt* version = nullptr;
         assert(sqlite3_prepare_v2(migrated_db, "PRAGMA user_version", -1, &version, nullptr) == SQLITE_OK);
         assert(sqlite3_step(version) == SQLITE_ROW);
-        assert(sqlite3_column_int(version, 0) == 4);
+        assert(sqlite3_column_int(version, 0) == 7);
         sqlite3_finalize(version);
         sqlite3_close(migrated_db);
     }
-    // Reopening a v4 database must succeed; this catches a stale maximum-version guard.
+    // Reopening a current-schema database must succeed; this catches a stale maximum-version guard.
     {
-        SqliteStore reopened_v4(migration_path);
-        assert(reopened_v4.open(&error));
-        EvaluationStats reopened_v4_stats;
-        assert(reopened_v4.get_evaluation_stats(reopened_v4_stats, &error));
+        SqliteStore reopened_current(migration_path);
+        assert(reopened_current.open(&error));
+        EvaluationStats reopened_current_stats;
+        assert(reopened_current.get_evaluation_stats(reopened_v4_stats, &error));
         assert(reopened_v4_stats.pending == 0);
         assert(reopened_v4_stats.labeled == 0);
-        assert(reopened_v4.integrity_check(integrity, &error));
+        assert(reopened_current.integrity_check(integrity, &error));
         assert(integrity == "ok");
     }
     std::filesystem::remove(migration_path);
