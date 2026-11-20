@@ -29,6 +29,10 @@ public:
                       ParsedMail* parsed = nullptr,
                       std::string* error = nullptr);
 
+    // Store a manual evaluation label without changing Bayes training.
+    bool evaluate(const std::string& raw_message, bool spam,
+                  std::string* error = nullptr);
+
     const BayesianModel& model() const noexcept { return model_; }
 
 private:
