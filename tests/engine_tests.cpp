@@ -458,6 +458,15 @@ int main() {
     assert(evaluation_stats.symbol_ham_as_review == 1);
     assert(evaluation_stats.symbol_ham_as_spam == 0);
 
+    EvaluationRecord shadow_record;
+    bool shadow_matched = false;
+    assert(store.complete_evaluation(eval_pending, false, &error, &shadow_matched, &shadow_record));
+    assert(shadow_matched);
+    assert(shadow_record.correlation_shadow_available);
+    assert(std::abs(shadow_record.correlation_probability - 0.42) < 1e-12);
+    assert(std::abs(shadow_record.correlation_evidence_log_odds - 0.25) < 1e-12);
+    assert(shadow_record.correlation_features == 7);
+
     std::string integrity;
     assert(store.integrity_check(integrity, &error));
     assert(integrity == "ok");
@@ -472,9 +481,9 @@ int main() {
     assert(restored.ham_samples() == 2);
     EvaluationStats reopened_evaluation;
     assert(reopened.get_evaluation_stats(reopened_evaluation, &error));
-    assert(reopened_evaluation.pending == 1);
-    assert(reopened_evaluation.labeled == 5);
-    assert(reopened_evaluation.symbol_labeled == 5);
+    assert(reopened_evaluation.pending == 0);
+    assert(reopened_evaluation.labeled == 6);
+    assert(reopened_evaluation.symbol_labeled == 6);
     assert(reopened.compact(3, 1, 365, &error));
     assert(reopened.integrity_check(integrity, &error));
     reopened.close();
