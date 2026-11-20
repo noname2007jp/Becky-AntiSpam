@@ -522,9 +522,9 @@ int main() {
         SqliteStore reopened_current(migration_path);
         assert(reopened_current.open(&error));
         EvaluationStats reopened_current_stats;
-        assert(reopened_current.get_evaluation_stats(reopened_v4_stats, &error));
-        assert(reopened_v4_stats.pending == 0);
-        assert(reopened_v4_stats.labeled == 0);
+        assert(reopened_current.get_evaluation_stats(reopened_current_stats, &error));
+        assert(reopened_current_stats.pending == 0);
+        assert(reopened_current_stats.labeled == 0);
         assert(reopened_current.integrity_check(integrity, &error));
         assert(integrity == "ok");
     }
