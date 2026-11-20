@@ -111,22 +111,7 @@ bool SqliteStore::open(std::string* error) {
     }
 
     sqlite3_busy_timeout(db_, 5000);
-    if (!exec(db_, "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;", error) ||
-        !exec(db_,
-            "CREATE TABLE IF NOT EXISTS meta ("
-            " key TEXT PRIMARY KEY, value INTEGER NOT NULL);"
-            "CREATE TABLE IF NOT EXISTS token_stats ("
-            " token TEXT PRIMARY KEY,"
-            " spam_docs INTEGER NOT NULL DEFAULT 0 CHECK(spam_docs>=0),"
-            " ham_docs INTEGER NOT NULL DEFAULT 0 CHECK(ham_docs>=0),"
-            " last_seen_utc INTEGER NOT NULL DEFAULT 0);"
-            "CREATE INDEX IF NOT EXISTS idx_token_stats_last_seen ON token_stats(last_seen_utc);"
-            "CREATE TABLE IF NOT EXISTS training_receipts ("
-            " message_hash TEXT PRIMARY KEY CHECK(length(message_hash)=64),"
-            " label INTEGER NOT NULL CHECK(label IN (0,1)),"
-            " trained_utc INTEGER NOT NULL);"
-            "CREATE INDEX IF NOT EXISTS idx_training_receipts_trained ON training_receipts(trained_utc);",
-            error)) {
+    if (!exec(db_, "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;", error)) {
         close();
         return false;
     }
@@ -183,6 +168,25 @@ bool SqliteStore::open(std::string* error) {
             return false;
         }
     }
+    if (schema_version <= 2 && !exec(db_,
+        "CREATE TABLE IF NOT EXISTS meta ("
+        " key TEXT PRIMARY KEY, value INTEGER NOT NULL);"
+        "CREATE TABLE IF NOT EXISTS token_stats ("
+        " token TEXT PRIMARY KEY,"
+        " spam_docs INTEGER NOT NULL DEFAULT 0 CHECK(spam_docs>=0),"
+        " ham_docs INTEGER NOT NULL DEFAULT 0 CHECK(ham_docs>=0),"
+        " last_seen_utc INTEGER NOT NULL DEFAULT 0);"
+        "CREATE INDEX IF NOT EXISTS idx_token_stats_last_seen ON token_stats(last_seen_utc);"
+        "CREATE TABLE IF NOT EXISTS training_receipts ("
+        " message_hash TEXT PRIMARY KEY CHECK(length(message_hash)=64),"
+        " label INTEGER NOT NULL CHECK(label IN (0,1)),"
+        " trained_utc INTEGER NOT NULL);"
+        "CREATE INDEX IF NOT EXISTS idx_training_receipts_trained ON training_receipts(trained_utc);",
+        error)) {
+        close();
+        return false;
+    }
+
     if (schema_version == 0 && !exec(db_, "PRAGMA user_version=1", error)) {
         close();
         return false;
