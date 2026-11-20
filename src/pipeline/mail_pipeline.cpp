@@ -42,4 +42,15 @@ TrainStatus MailPipeline::train(const std::string& raw_message,
     return status;
 }
 
+bool MailPipeline::evaluate(const std::string& raw_message,
+                            bool spam,
+                            std::string* error) {
+    if (!initialized_ && !initialize(error)) return false;
+    if (raw_message.empty() || raw_message.size() > 5u * 1024u * 1024u) {
+        if (error) *error = "評価対象メールのサイズが不正です";
+        return false;
+    }
+    return store_.set_evaluation_label(sha256_hex(raw_message), spam, error);
+}
+
 } // namespace beckyas
