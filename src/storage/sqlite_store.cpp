@@ -586,7 +586,8 @@ bool SqliteStore::complete_evaluation(const std::string& message_hash,
     if (matched) *matched = found;
     if (found && record) {
         Statement details(db_,
-            "SELECT diagnostic_case,predicted_verdict,comparison_verdict,comparison_v2_verdict "
+            "SELECT diagnostic_case,predicted_verdict,comparison_verdict,comparison_v2_verdict,"
+            "bayes_corr_probability,bayes_corr_evidence,bayes_corr_features "
             "FROM evaluation_results WHERE message_hash=?1");
         if (!details.ok()) {
             set_error(db_, error, "評価ケース情報SQLを準備できません");
@@ -607,6 +608,13 @@ bool SqliteStore::complete_evaluation(const std::string& message_hash,
         if (sqlite3_column_type(details.get(), 3) != SQLITE_NULL) {
             record->comparison_v2_available = true;
             record->comparison_v2_verdict = static_cast<Verdict>(sqlite3_column_int(details.get(), 3));
+        }
+        if (sqlite3_column_type(details.get(), 4) != SQLITE_NULL) {
+            record->correlation_shadow_available = true;
+            record->correlation_probability = sqlite3_column_double(details.get(), 4);
+            record->correlation_evidence_log_odds = sqlite3_column_double(details.get(), 5);
+            record->correlation_features = static_cast<std::size_t>(
+                std::max<sqlite3_int64>(0, sqlite3_column_int64(details.get(), 6)));
         }
     }
     // No matching prediction is not an error (e.g. mail received before this feature).
