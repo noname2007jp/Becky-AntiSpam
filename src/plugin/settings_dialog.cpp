@@ -110,7 +110,7 @@ LRESULT CALLBACK dialog_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             BS_AUTOCHECKBOX | WS_TABSTOP, 32, 70, 420, 24, kLogId);
         g_test = control(hwnd, L"BUTTON", L"詳細テストログを出力する（test-detail.log）",
             BS_AUTOCHECKBOX | WS_TABSTOP, 32, 101, 420, 24, kTestId);
-        control(hwnd, L"STATIC", L"詳細ログには解析結果・判定ルール・警告が記録されます。通常運用ではOFFを推奨します。",
+        control(hwnd, L"STATIC", L"詳細ログに加え、共有用の要約ログ（test-summary.log）を出力します。通常運用ではOFFを推奨します。",
             0, 32, 132, 420, 30);
         control(hwnd, L"BUTTON", L"判定キー", BS_GROUPBOX, 16, 180, 452, 94);
         control(hwnd, L"STATIC", L"正常として確定：", 0, 30, 204, 125, 22);
