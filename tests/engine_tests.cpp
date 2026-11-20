@@ -310,6 +310,22 @@ int main() {
     // from the presence-only baseline.
     assert(std::abs(comparison.bernoulli_probability -
         comparison.presence_probability) > 1e-9);
+    const auto correlation_only =
+        imbalanced.compare_correlation_adjusted("knownspamfeature unknownfeature");
+    assert(std::abs(correlation_only.correlation_adjusted_probability -
+        comparison.correlation_adjusted_probability) < 1e-12);
+    assert(std::abs(correlation_only.correlation_adjusted_evidence_log_odds -
+        comparison.correlation_adjusted_evidence_log_odds) < 1e-12);
+    Settings shadow_only_settings;
+    shadow_only_settings.enable_correlation_shadow = true;
+    Filter shadow_only_filter(shadow_only_settings);
+    Message shadow_only_message;
+    shadow_only_message.subject = "knownspamfeature";
+    const auto baseline_shadow_only = Filter().classify(shadow_only_message, &imbalanced);
+    const auto shadow_only_result = shadow_only_filter.classify(shadow_only_message, &imbalanced);
+    assert(shadow_only_result.verdict == baseline_shadow_only.verdict);
+    assert(shadow_only_result.score == baseline_shadow_only.score);
+    assert(shadow_only_result.bayes_comparison.correlation_adjusted_features > 0);
     assert(std::isfinite(comparison.correlation_adjusted_probability));
     assert(comparison.correlation_adjusted_features == 1);
     assert(comparison.correlation_adjustment_scale > 0.0);
