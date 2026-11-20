@@ -55,6 +55,10 @@ struct EvaluationRecord {
     Verdict comparison_verdict = Verdict::Ham;
     bool comparison_v2_available = false;
     Verdict comparison_v2_verdict = Verdict::Ham;
+    bool correlation_shadow_available = false;
+    double correlation_probability = 0.0;
+    double correlation_evidence_log_odds = 0.0;
+    std::size_t correlation_features = 0;
 };
 
 class SqliteStore {
