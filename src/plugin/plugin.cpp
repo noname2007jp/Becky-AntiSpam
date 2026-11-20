@@ -235,9 +235,10 @@ bool initialize_plugin() {
     g_store = std::make_unique<beckyas::SqliteStore>(db_utf8);
     beckyas::Settings classifier_settings;
     classifier_settings.brand_rules = std::move(brand_rules);
-    // Always calculate the correlation-adjusted Bayes candidate in shadow mode.
-    // It is persisted as diagnostics only and never changes the active verdict.
-    classifier_settings.enable_bayes_comparison = true;
+    // Calculate only the correlation-adjusted candidate in shadow mode.
+    // Avoid the O(vocabulary) Bernoulli diagnostic during normal mail processing.
+    classifier_settings.enable_bayes_comparison = g_log_settings.test_mode;
+    classifier_settings.enable_correlation_shadow = true;
     classifier_settings.enable_symbol_comparison = g_log_settings.test_mode;
     operational_log("INFO", std::string("brand rules loaded count=") +
         std::to_string(classifier_settings.brand_rules.size()));
