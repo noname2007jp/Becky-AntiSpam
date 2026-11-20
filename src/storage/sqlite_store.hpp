@@ -94,7 +94,11 @@ public:
                                       int symbol_score = 0,
                                       bool comparison_available = true,
                                       std::uint64_t diagnostic_case = 0,
-                                      Verdict symbol_v2_verdict = Verdict::Ham);
+                                      Verdict symbol_v2_verdict = Verdict::Ham,
+                                      double correlation_probability = 0.0,
+                                      double correlation_evidence_log_odds = 0.0,
+                                      std::size_t correlation_features = 0,
+                                      bool correlation_shadow_available = false);
     bool complete_evaluation(const std::string& message_hash, bool spam,
                              std::string* error = nullptr,
                              bool* matched = nullptr,
