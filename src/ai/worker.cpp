@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -38,8 +39,7 @@ bool space(std::uint32_t c) {
            c==0x2028||c==0x2029||c==0x202F||c==0x205F||c==0x3000;
 }
 bool cjk(std::uint32_t c) {
-    return (c>=0x4E00&&c<=0x9FFF)||(c>=0x3400&&c<=0x4DBF)||(c>=0x3040&&c<=0x30FF)||
-           (c>=0x31F0&&c<=0x31FF)||(c>=0xAC00&&c<=0xD7AF)||(c>=0xF900&&c<=0xFAFF)||
+    return (c>=0x4E00&&c<=0x9FFF)||(c>=0x3400&&c<=0x4DBF)||(c>=0xF900&&c<=0xFAFF)||
            (c>=0x20000&&c<=0x2FA1F);
 }
 bool punct(std::uint32_t c) {
