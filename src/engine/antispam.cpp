@@ -366,15 +366,28 @@ BayesComparison BayesianModel::compare_probabilities(const std::string& text) co
     spam_probability(text, &diagnostics);
     result.presence_log_odds = diagnostics.log_odds;
 
-    // Correlation-aware presence comparison:
-    // - smooth each class toward the same corpus-wide token rate, avoiding
-    //   class-size artifacts for tokens seen in only one class;
-    // - average token evidence instead of summing every overlapping Japanese
-    //   bigram as if it were statistically independent.
+    const auto correlation = compare_correlation_adjusted(text);
+    result.correlation_adjusted_probability = correlation.correlation_adjusted_probability;
+    result.correlation_adjusted_log_odds = correlation.correlation_adjusted_log_odds;
+    result.correlation_adjusted_evidence_log_odds = correlation.correlation_adjusted_evidence_log_odds;
+    result.correlation_adjustment_scale = correlation.correlation_adjustment_scale;
+    result.correlation_adjusted_features = correlation.correlation_adjusted_features;
+    result.vocabulary_features = correlation.vocabulary_features;
+    return result;
+}
+
+BayesComparison BayesianModel::compare_correlation_adjusted(const std::string& text) const {
+    BayesComparison result;
+    if (spam_samples_ + ham_samples_ == 0) return result;
+
+    const double prior = (static_cast<double>(spam_samples_) + 1.0) /
+        (static_cast<double>(spam_samples_ + ham_samples_) + 2.0);
+    const double prior_log_odds = std::log(prior / (1.0 - prior));
     const double total_samples = static_cast<double>(spam_samples_ + ham_samples_);
     constexpr double smoothing_strength = 5.0;
     double evidence_sum = 0.0;
-    std::size_t known_features = 0;
+    std::unordered_set<std::string> present;
+    for (const auto& token : tokenize(text)) present.insert(token);
     for (const auto& token : present) {
         const auto it = words_.find(token);
         if (it == words_.end()) continue;
@@ -387,18 +400,16 @@ BayesComparison BayesianModel::compare_probabilities(const std::string& text) co
         const double p_ham = (ham_docs + smoothing_strength * corpus_rate) /
             (static_cast<double>(ham_samples_) + smoothing_strength);
         evidence_sum += std::log(p_spam) - std::log(p_ham);
-        ++known_features;
+        ++result.correlation_adjusted_features;
     }
-    result.correlation_adjusted_features = known_features;
-    result.correlation_adjustment_scale = known_features == 0
-        ? 0.0 : 1.0 / (static_cast<double>(known_features) + smoothing_strength);
-    result.correlation_adjusted_evidence_log_odds =
-        evidence_sum * result.correlation_adjustment_scale;
+    result.vocabulary_features = words_.size();
+    result.correlation_adjustment_scale = result.correlation_adjusted_features == 0
+        ? 0.0 : 1.0 / (static_cast<double>(result.correlation_adjusted_features) + smoothing_strength);
+    result.correlation_adjusted_evidence_log_odds = evidence_sum * result.correlation_adjustment_scale;
     result.correlation_adjusted_log_odds = prior_log_odds +
         result.correlation_adjusted_evidence_log_odds;
-    const double correlation_delta =
-        std::clamp(-result.correlation_adjusted_log_odds, -40.0, 40.0);
-    result.correlation_adjusted_probability = 1.0 / (1.0 + std::exp(correlation_delta));
+    const double delta = std::clamp(-result.correlation_adjusted_log_odds, -40.0, 40.0);
+    result.correlation_adjusted_probability = 1.0 / (1.0 + std::exp(delta));
     return result;
 }
 
@@ -554,6 +565,8 @@ Result Filter::classify(const Message& m, const BayesianModel* model) const {
         r.bayes_probability = model->spam_probability(text, &r.bayes_diagnostics);
         if (settings_.enable_bayes_comparison)
             r.bayes_comparison = model->compare_probabilities(text);
+        else if (settings_.enable_correlation_shadow)
+            r.bayes_comparison = model->compare_correlation_adjusted(text);
         if (model->spam_samples() >= 5 && model->ham_samples() >= 5) {
             const int bayes_score = static_cast<int>(std::lround(r.bayes_probability * 40.0));
             if (bayes_score > 0) add(r, "bayes.probability", bayes_score, "学習モデルによる迷惑メール確率");
