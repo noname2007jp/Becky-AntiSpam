@@ -142,7 +142,7 @@ bool SqliteStore::open(std::string* error) {
         }
         schema_version = sqlite3_column_int(version.get(), 0);
     }
-    if (schema_version > 6) {
+    if (schema_version > 7) {
         if (error) *error = "未対応のデータベーススキーマです";
         close();
         return false;
@@ -212,6 +212,19 @@ bool SqliteStore::open(std::string* error) {
             "ALTER TABLE evaluation_results ADD COLUMN comparison_v2_verdict INTEGER "
             "CHECK(comparison_v2_verdict IS NULL OR comparison_v2_verdict IN (0,1,2));"
             "PRAGMA user_version=6;"
+            "COMMIT;", error)) {
+            close();
+            return false;
+        }
+    }
+    if (schema_version < 7) {
+        if (!exec(db_,
+            "BEGIN IMMEDIATE;"
+            "ALTER TABLE evaluation_results ADD COLUMN bayes_corr_probability REAL "
+            "CHECK(bayes_corr_probability IS NULL OR (bayes_corr_probability>=0.0 AND bayes_corr_probability<=1.0));"
+            "ALTER TABLE evaluation_results ADD COLUMN bayes_corr_evidence REAL;"
+            "ALTER TABLE evaluation_results ADD COLUMN bayes_corr_features INTEGER NOT NULL DEFAULT 0 CHECK(bayes_corr_features>=0);"
+            "PRAGMA user_version=7;"
             "COMMIT;", error)) {
             close();
             return false;
@@ -434,7 +447,11 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
                                                int symbol_score,
                                                bool comparison_available,
                                                std::uint64_t diagnostic_case,
-                                               Verdict symbol_v2_verdict) {
+                                               Verdict symbol_v2_verdict,
+                                               double correlation_probability,
+                                               double correlation_evidence_log_odds,
+                                               std::size_t correlation_features,
+                                               bool correlation_shadow_available) {
     if (!db_) {
         if (error) *error = "データベースが開かれていません";
         return false;
@@ -446,6 +463,13 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
     if (!std::isfinite(bayes_probability) ||
         bayes_probability < 0.0 || bayes_probability > 1.0) {
         if (error) *error = "Bayes確率は0.0から1.0の範囲で指定してください";
+        return false;
+    }
+
+    if (correlation_shadow_available &&
+        (!std::isfinite(correlation_probability) || correlation_probability < 0.0 || correlation_probability > 1.0 ||
+         !std::isfinite(correlation_evidence_log_odds))) {
+        if (error) *error = "相関補正Bayesの診断値が不正です";
         return false;
     }
 
@@ -462,8 +486,9 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
     Statement prediction(db_,
         "INSERT OR IGNORE INTO evaluation_results("
         "message_hash,actual_label,predicted_verdict,score,bayes_probability,"
-        "ham_samples,spam_samples,predicted_utc,labeled_utc,comparison_score,comparison_verdict,diagnostic_case,comparison_v2_verdict) "
-        "VALUES(?1,NULL,?2,?3,?4,?5,?6,?7,NULL,?8,?9,?10,?11) "
+        "ham_samples,spam_samples,predicted_utc,labeled_utc,comparison_score,comparison_verdict,diagnostic_case,comparison_v2_verdict,"
+        "bayes_corr_probability,bayes_corr_evidence,bayes_corr_features) "
+        "VALUES(?1,NULL,?2,?3,?4,?5,?6,?7,NULL,?8,?9,?10,?11,?12,?13,?14) "
         "ON CONFLICT(message_hash) DO UPDATE SET "
         "predicted_verdict=excluded.predicted_verdict,score=excluded.score,"
         "bayes_probability=excluded.bayes_probability,ham_samples=excluded.ham_samples,"
@@ -471,7 +496,10 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
         "comparison_score=excluded.comparison_score,"
         "comparison_verdict=excluded.comparison_verdict,"
         "diagnostic_case=excluded.diagnostic_case,"
-        "comparison_v2_verdict=excluded.comparison_v2_verdict "
+        "comparison_v2_verdict=excluded.comparison_v2_verdict,"
+        "bayes_corr_probability=excluded.bayes_corr_probability,"
+        "bayes_corr_evidence=excluded.bayes_corr_evidence,"
+        "bayes_corr_features=excluded.bayes_corr_features "
         "WHERE excluded.diagnostic_case>0");
     if (!prediction.ok()) {
         set_error(db_, error, "評価予測SQLを準備できません");
@@ -494,6 +522,15 @@ bool SqliteStore::record_evaluation_prediction(const std::string& message_hash,
         sqlite3_bind_int(prediction.get(), 11, comparison_v2_verdict);
     else
         sqlite3_bind_null(prediction.get(), 11);
+    if (correlation_shadow_available) {
+        sqlite3_bind_double(prediction.get(), 12, correlation_probability);
+        sqlite3_bind_double(prediction.get(), 13, correlation_evidence_log_odds);
+        sqlite3_bind_int64(prediction.get(), 14, static_cast<sqlite3_int64>(correlation_features));
+    } else {
+        sqlite3_bind_null(prediction.get(), 12);
+        sqlite3_bind_null(prediction.get(), 13);
+        sqlite3_bind_int64(prediction.get(), 14, 0);
+    }
     if (sqlite3_step(prediction.get()) != SQLITE_DONE) {
         set_error(db_, error, "評価予測を保存できません");
         return false;
@@ -549,7 +586,8 @@ bool SqliteStore::complete_evaluation(const std::string& message_hash,
     if (matched) *matched = found;
     if (found && record) {
         Statement details(db_,
-            "SELECT diagnostic_case,predicted_verdict,comparison_verdict,comparison_v2_verdict "
+            "SELECT diagnostic_case,predicted_verdict,comparison_verdict,comparison_v2_verdict,"
+            "bayes_corr_probability,bayes_corr_evidence,bayes_corr_features "
             "FROM evaluation_results WHERE message_hash=?1");
         if (!details.ok()) {
             set_error(db_, error, "評価ケース情報SQLを準備できません");
@@ -570,6 +608,13 @@ bool SqliteStore::complete_evaluation(const std::string& message_hash,
         if (sqlite3_column_type(details.get(), 3) != SQLITE_NULL) {
             record->comparison_v2_available = true;
             record->comparison_v2_verdict = static_cast<Verdict>(sqlite3_column_int(details.get(), 3));
+        }
+        if (sqlite3_column_type(details.get(), 4) != SQLITE_NULL) {
+            record->correlation_shadow_available = true;
+            record->correlation_probability = sqlite3_column_double(details.get(), 4);
+            record->correlation_evidence_log_odds = sqlite3_column_double(details.get(), 5);
+            record->correlation_features = static_cast<std::size_t>(
+                std::max<sqlite3_int64>(0, sqlite3_column_int64(details.get(), 6)));
         }
     }
     // No matching prediction is not an error (e.g. mail received before this feature).

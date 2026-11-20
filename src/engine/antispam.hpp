@@ -31,6 +31,7 @@ struct Settings {
     bool enable_authentication_rules = true;
     bool enable_url_rules = true;
     bool enable_bayes_comparison = false;
+    bool enable_correlation_shadow = false;
     bool enable_symbol_comparison = false;
     std::vector<BrandRule> brand_rules;
 };
@@ -120,6 +121,8 @@ public:
     double spam_probability(const std::string& text, BayesDiagnostics* diagnostics = nullptr) const;
     // Offline comparison only; does not change the active classification result.
     BayesComparison compare_probabilities(const std::string& text) const;
+    // Lightweight correlation-adjusted score only; avoids the O(vocabulary) Bernoulli diagnostic.
+    BayesComparison compare_correlation_adjusted(const std::string& text) const;
     std::size_t spam_samples() const noexcept { return spam_samples_; }
     std::size_t ham_samples() const noexcept { return ham_samples_; }
     std::size_t vocabulary_size() const noexcept { return words_.size(); }

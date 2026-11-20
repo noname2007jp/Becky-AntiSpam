@@ -111,7 +111,11 @@ bool MailPipeline::record_prediction(const std::string& raw_message,
         model_.ham_samples(), model_.spam_samples(), error,
         result.symbol_comparison.verdict, result.symbol_comparison.score,
         include_symbol_comparison, diagnostic_case,
-        result.symbol_experiment.verdict);
+        result.symbol_experiment.verdict,
+        result.bayes_comparison.correlation_adjusted_probability,
+        result.bayes_comparison.correlation_adjusted_evidence_log_odds,
+        result.bayes_comparison.correlation_adjusted_features,
+        result.bayes_comparison.correlation_adjusted_features > 0);
 }
 
 bool MailPipeline::label_evaluation(const std::string& raw_message,

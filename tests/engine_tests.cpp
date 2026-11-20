@@ -310,6 +310,22 @@ int main() {
     // from the presence-only baseline.
     assert(std::abs(comparison.bernoulli_probability -
         comparison.presence_probability) > 1e-9);
+    const auto correlation_only =
+        imbalanced.compare_correlation_adjusted("knownspamfeature unknownfeature");
+    assert(std::abs(correlation_only.correlation_adjusted_probability -
+        comparison.correlation_adjusted_probability) < 1e-12);
+    assert(std::abs(correlation_only.correlation_adjusted_evidence_log_odds -
+        comparison.correlation_adjusted_evidence_log_odds) < 1e-12);
+    Settings shadow_only_settings;
+    shadow_only_settings.enable_correlation_shadow = true;
+    Filter shadow_only_filter(shadow_only_settings);
+    Message shadow_only_message;
+    shadow_only_message.subject = "knownspamfeature";
+    const auto baseline_shadow_only = Filter().classify(shadow_only_message, &imbalanced);
+    const auto shadow_only_result = shadow_only_filter.classify(shadow_only_message, &imbalanced);
+    assert(shadow_only_result.verdict == baseline_shadow_only.verdict);
+    assert(shadow_only_result.score == baseline_shadow_only.score);
+    assert(shadow_only_result.bayes_comparison.correlation_adjusted_features > 0);
     assert(std::isfinite(comparison.correlation_adjusted_probability));
     assert(comparison.correlation_adjusted_features == 1);
     assert(comparison.correlation_adjustment_scale > 0.0);
@@ -423,7 +439,23 @@ int main() {
     assert(store.complete_evaluation(eval_ham_false_positive, false, &error));
     assert(store.record_evaluation_prediction(eval_ham_hit, Verdict::Ham, 0, 0.02, 2, 5, &error, Verdict::Ham, 0));
     assert(store.complete_evaluation(eval_ham_hit, false, &error));
-    assert(store.record_evaluation_prediction(eval_pending, Verdict::Review, 35, 0.65, 2, 5, &error, Verdict::Review, 35));
+    assert(store.record_evaluation_prediction(eval_pending, Verdict::Review, 35, 0.65, 2, 5,
+        &error, Verdict::Review, 35, true, 0, Verdict::Review, 0.42, 0.25, 7, true));
+    // Correlation-adjusted Bayes shadow values are persisted separately from
+    // the active verdict and can be read without changing training data.
+    sqlite3* shadow_db = nullptr;
+    assert(sqlite3_open(db_path.c_str(), &shadow_db) == SQLITE_OK);
+    sqlite3_stmt* shadow_row = nullptr;
+    assert(sqlite3_prepare_v2(shadow_db,
+        "SELECT bayes_corr_probability,bayes_corr_evidence,bayes_corr_features "
+        "FROM evaluation_results WHERE message_hash=?1", -1, &shadow_row, nullptr) == SQLITE_OK);
+    sqlite3_bind_text(shadow_row, 1, eval_pending.c_str(), -1, SQLITE_TRANSIENT);
+    assert(sqlite3_step(shadow_row) == SQLITE_ROW);
+    assert(std::abs(sqlite3_column_double(shadow_row, 0) - 0.42) < 1e-12);
+    assert(std::abs(sqlite3_column_double(shadow_row, 1) - 0.25) < 1e-12);
+    assert(sqlite3_column_int(shadow_row, 2) == 7);
+    sqlite3_finalize(shadow_row);
+    sqlite3_close(shadow_db);
     EvaluationStats evaluation_stats;
     assert(store.get_evaluation_stats(evaluation_stats, &error));
     assert(evaluation_stats.pending == 1);
@@ -442,6 +474,15 @@ int main() {
     assert(evaluation_stats.symbol_ham_as_review == 1);
     assert(evaluation_stats.symbol_ham_as_spam == 0);
 
+    EvaluationRecord shadow_record;
+    bool shadow_matched = false;
+    assert(store.complete_evaluation(eval_pending, false, &error, &shadow_matched, &shadow_record));
+    assert(shadow_matched);
+    assert(shadow_record.correlation_shadow_available);
+    assert(std::abs(shadow_record.correlation_probability - 0.42) < 1e-12);
+    assert(std::abs(shadow_record.correlation_evidence_log_odds - 0.25) < 1e-12);
+    assert(shadow_record.correlation_features == 7);
+
     std::string integrity;
     assert(store.integrity_check(integrity, &error));
     assert(integrity == "ok");
@@ -456,9 +497,9 @@ int main() {
     assert(restored.ham_samples() == 2);
     EvaluationStats reopened_evaluation;
     assert(reopened.get_evaluation_stats(reopened_evaluation, &error));
-    assert(reopened_evaluation.pending == 1);
-    assert(reopened_evaluation.labeled == 5);
-    assert(reopened_evaluation.symbol_labeled == 5);
+    assert(reopened_evaluation.pending == 0);
+    assert(reopened_evaluation.labeled == 6);
+    assert(reopened_evaluation.symbol_labeled == 6);
     assert(reopened.compact(3, 1, 365, &error));
     assert(reopened.integrity_check(integrity, &error));
     reopened.close();
@@ -469,7 +510,7 @@ int main() {
     std::filesystem::remove(backup_path);
     std::filesystem::remove(db_path + ".precompact.bak");
 
-    // Existing schema-v2 databases must be upgraded in place to schema v4.
+    // Existing schema-v2 databases must be upgraded in place to the current schema.
     const auto migration_path = (temp / "becky_antispam_schema_v2.sqlite3").string();
     std::filesystem::remove(migration_path);
     std::filesystem::remove(migration_path + "-wal");
@@ -497,19 +538,19 @@ int main() {
         sqlite3_stmt* version = nullptr;
         assert(sqlite3_prepare_v2(migrated_db, "PRAGMA user_version", -1, &version, nullptr) == SQLITE_OK);
         assert(sqlite3_step(version) == SQLITE_ROW);
-        assert(sqlite3_column_int(version, 0) == 4);
+        assert(sqlite3_column_int(version, 0) == 7);
         sqlite3_finalize(version);
         sqlite3_close(migrated_db);
     }
-    // Reopening a v4 database must succeed; this catches a stale maximum-version guard.
+    // Reopening a current-schema database must succeed; this catches a stale maximum-version guard.
     {
-        SqliteStore reopened_v4(migration_path);
-        assert(reopened_v4.open(&error));
-        EvaluationStats reopened_v4_stats;
-        assert(reopened_v4.get_evaluation_stats(reopened_v4_stats, &error));
-        assert(reopened_v4_stats.pending == 0);
-        assert(reopened_v4_stats.labeled == 0);
-        assert(reopened_v4.integrity_check(integrity, &error));
+        SqliteStore reopened_current(migration_path);
+        assert(reopened_current.open(&error));
+        EvaluationStats reopened_current_stats;
+        assert(reopened_current.get_evaluation_stats(reopened_current_stats, &error));
+        assert(reopened_current_stats.pending == 0);
+        assert(reopened_current_stats.labeled == 0);
+        assert(reopened_current.integrity_check(integrity, &error));
         assert(integrity == "ok");
     }
     std::filesystem::remove(migration_path);
