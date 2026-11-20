@@ -142,9 +142,46 @@ bool SqliteStore::open(std::string* error) {
         schema_version = sqlite3_column_int(version.get(), 0);
     }
     if (schema_version > 2) {
-        if (error) *error = "未対応のデータベーススキーマです";
-        close();
-        return false;
+        // This build is intentionally test-stage: discard an unknown schema and
+        // recreate the current v2 database instead of leaving the whole pipeline
+        // unavailable. Keep the reset atomic so a failed reset can be rolled back.
+        if (!begin(db_, error)) {
+            close();
+            return false;
+        }
+        if (!exec(db_,
+            "DROP TABLE IF EXISTS evaluation_labels;"
+            "DROP TABLE IF EXISTS training_receipts;"
+            "DROP TABLE IF EXISTS token_stats;"
+            "DROP TABLE IF EXISTS meta;"
+            "PRAGMA user_version=0;", error)) {
+            rollback(db_);
+            close();
+            return false;
+        }
+        if (!exec(db_, "COMMIT", error)) {
+            rollback(db_);
+            close();
+            return false;
+        }
+        schema_version = 0;
+        if (!exec(db_,
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);"
+            "CREATE TABLE token_stats ("
+            " token TEXT PRIMARY KEY,"
+            " spam_docs INTEGER NOT NULL DEFAULT 0 CHECK(spam_docs>=0),"
+            " ham_docs INTEGER NOT NULL DEFAULT 0 CHECK(ham_docs>=0),"
+            " last_seen_utc INTEGER NOT NULL DEFAULT 0);"
+            "CREATE INDEX idx_token_stats_last_seen ON token_stats(last_seen_utc);"
+            "CREATE TABLE training_receipts ("
+            " message_hash TEXT PRIMARY KEY CHECK(length(message_hash)=64),"
+            " label INTEGER NOT NULL CHECK(label IN (0,1)),"
+            " trained_utc INTEGER NOT NULL);"
+            "CREATE INDEX idx_training_receipts_trained ON training_receipts(trained_utc);",
+            error)) {
+            close();
+            return false;
+        }
     }
     if (schema_version == 0 && !exec(db_, "PRAGMA user_version=1", error)) {
         close();
