@@ -35,9 +35,11 @@ jobs:
         run: cmake --build build-x64 --config Release
       - name: Test
         run: ctest --test-dir build-x64 -C Release --output-on-failure
-      - name: Upload x64 AI worker
+      - name: Upload x64 AI worker and matching ONNX Runtime
         uses: actions/upload-artifact@v4
         with:
           name: BeckyAntiSpam-AI-x64
-          path: build-x64/Release/AntiSpamAI.exe
+          path: |
+            build-x64/Release/AntiSpamAI.exe
+            build-x64/Release/onnxruntime.dll
           if-no-files-found: error
