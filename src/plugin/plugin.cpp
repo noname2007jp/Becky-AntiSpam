@@ -286,11 +286,69 @@ void train_selected_messages(bool spam, const char* trigger) {
     }
 }
 
+void evaluate_selected_messages(bool spam, const char* trigger) {
+    try {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (!g_pipeline && !initialize_plugin()) {
+            operational_log("ERROR", "manual evaluation skipped: pipeline unavailable");
+            return;
+        }
+        if (!g_becky_get_next_mail || !g_becky_get_source || !g_becky_free) {
+            operational_log("ERROR", "manual evaluation skipped: Becky! mail APIs unavailable");
+            return;
+        }
+
+        std::size_t selected = 0, labeled = 0, failed = 0;
+        int position = -1;
+        for (std::size_t guard = 0; guard < 10000; ++guard) {
+            std::array<char, 1024> mail_id{};
+            const int next = g_becky_get_next_mail(position, mail_id.data(),
+                                                   static_cast<int>(mail_id.size()), TRUE);
+            if (next == -1) break;
+            position = next;
+            if (mail_id[0] == '\\0') { ++failed; continue; }
+            ++selected;
+
+            LPSTR source = g_becky_get_source(mail_id.data());
+            if (!source) { ++failed; continue; }
+            const void* terminator = std::memchr(source, '\\0', kMaxMessageBytes + 1);
+            if (!terminator) {
+                g_becky_free(source);
+                ++failed;
+                continue;
+            }
+            std::string raw(source, static_cast<const char*>(terminator) - source);
+            g_becky_free(source);
+
+            std::string error;
+            if (g_pipeline->evaluate(raw, spam, &error)) ++labeled;
+            else {
+                ++failed;
+                operational_log("WARN", "manual evaluation label failed: " + error);
+            }
+        }
+
+        operational_log("INFO", std::string("evaluation label trigger=") + trigger +
+            " label=" + (spam ? "spam" : "ham") +
+            " training=none selected=" + std::to_string(selected) +
+            " labeled=" + std::to_string(labeled) +
+            " failed=" + std::to_string(failed));
+    } catch (...) {
+        operational_log("ERROR", std::string("manual evaluation callback failed trigger=") + trigger);
+    }
+}
+
 void CALLBACK menu_train_ham(HWND, LPARAM) {
     train_selected_messages(false, "context-menu");
 }
 void CALLBACK menu_train_spam(HWND, LPARAM) {
     train_selected_messages(true, "context-menu");
+}
+void CALLBACK menu_evaluate_ham(HWND, LPARAM) {
+    evaluate_selected_messages(false, "context-menu");
+}
+void CALLBACK menu_evaluate_spam(HWND, LPARAM) {
+    evaluate_selected_messages(true, "context-menu");
 }
 
 } // namespace
@@ -336,8 +394,12 @@ int WINAPI BKC_OnMenuInit(HWND, HMENU menu, int type) {
         "Train selected messages as Ham", type, menu_train_ham);
     const UINT spam_id = g_becky_register_command(
         "Train selected messages as Spam", type, menu_train_spam);
+    const UINT eval_ham_id = g_becky_register_command(
+        "Evaluate selected messages as Ham", type, menu_evaluate_ham);
+    const UINT eval_spam_id = g_becky_register_command(
+        "Evaluate selected messages as Spam", type, menu_evaluate_spam);
 
-    if (!ham_id && !spam_id) return 0;
+    if (!ham_id && !spam_id && !eval_ham_id && !eval_spam_id) return 0;
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     if (ham_id) {
         const std::wstring label = std::wstring(L"正常メールとして学習 (") +
@@ -348,6 +410,15 @@ int WINAPI BKC_OnMenuInit(HWND, HMENU menu, int type) {
         const std::wstring label = std::wstring(L"迷惑メールとして学習 (") +
             static_cast<wchar_t>(g_spam_key) + L")";
         AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(spam_id), label.c_str());
+    }
+    if (eval_ham_id || eval_spam_id) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    if (eval_ham_id) {
+        AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(eval_ham_id),
+                    L"正常メールとして評価（学習しない）");
+    }
+    if (eval_spam_id) {
+        AppendMenuW(menu, MF_STRING, static_cast<UINT_PTR>(eval_spam_id),
+                    L"迷惑メールとして評価（学習しない）");
     }
     return 0;
 }
