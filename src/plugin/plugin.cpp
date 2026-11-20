@@ -405,7 +405,13 @@ void label_selected_messages(bool spam, const char* trigger) {
                         " symbol_v1=" + (evaluation_record.comparison_available
                             ? verdict_name(evaluation_record.comparison_verdict) : "NA") +
                         " symbol_v2=" + (evaluation_record.comparison_v2_available
-                            ? verdict_name(evaluation_record.comparison_v2_verdict) : "NA"));
+                            ? verdict_name(evaluation_record.comparison_v2_verdict) : "NA") +
+                        " bayes_corr=" + (evaluation_record.correlation_shadow_available
+                            ? std::to_string(static_cast<int>(evaluation_record.correlation_probability * 100.0 + 0.5)) + "%"
+                            : "NA") +
+                        " bayes_corr_evidence=" + (evaluation_record.correlation_shadow_available
+                            ? std::to_string(evaluation_record.correlation_evidence_log_odds) : "NA") +
+                        " bayes_corr_features=" + std::to_string(evaluation_record.correlation_features));
                 }
             } else {
                 ++unmatched;
