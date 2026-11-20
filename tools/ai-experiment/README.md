@@ -1,52 +1,42 @@
 # AntiSpamAI experimental model
 
-This directory prepares an **isolated, manual-only experiment** for the x64
-`AntiSpamAI.exe` worker. It does not enable AI inference in the Becky! plugin,
-does not change the production classifier, and does not write to the Bayes DB
-or evaluation database.
+This is an isolated, manual-only experiment for the x64 AntiSpamAI.exe worker. It does not enable inference in the Becky! plugin, change the production classifier, or write to Bayes/evaluation databases.
 
 ## Candidate model
-
-- Repository: `onnx-community/tanaos-spam-detection-v1-ONNX`
-- Revision: `dac7281d03723c7024de552ddec6eac0b4d6fabf` (pinned)
+- Repository: onnx-community/tanaos-spam-detection-v1-ONNX
+- Pinned revision: dac7281d03723c7024de552ddec6eac0b4d6fabf
+- Model: multilingual DistilBERT, labels not_spam (0) and spam (1)
+- ONNX: onnx/model_quantized.onnx (about 136 MB)
 - License declared by the model repository: MIT
-- Architecture: multilingual DistilBERT sequence classifier
-- Labels: `not_spam` (0), `spam` (1)
-- Selected ONNX: `onnx/model_quantized.onnx` (about 136 MB)
-- Tokenizer: WordPiece vocabulary from the same pinned revision
 
-The model card describes training on synthetic multilingual messages. It is a
-candidate for a technical trial, **not a validated Japanese business-email
-classifier**. It may flag legitimate business notifications or newsletters.
-The experiment must display probabilities and must never move, delete, train
-on, or relabel a message.
+The model was trained on synthetic multilingual messages and is not validated for Japanese business email. Treat its probability as experimental, not as an operational verdict.
 
-## Download assets
-
-Run from the repository root in PowerShell:
+## Build and prepare
+The x64 CMake configuration downloads the pinned CPU ONNX Runtime NuGet package (1.20.1).
 
 ```powershell
+cmake -S . -B build-x64 -A x64
+cmake --build build-x64 --config Release
 .\tools\ai-experiment\download-model.ps1
 ```
 
-The script downloads only the pinned model and tokenizer assets into
-`models\tanaos-spam-detection-v1\`. The model is not committed to Git.
+## Manual test
+Create a UTF-8 text file containing the subject and body, then run:
 
-## Isolation and privacy
+```powershell
+.\build-x64\Release\AntiSpamAI.exe --classify-file .\sample-mail.txt
+```
 
-- Manual invocation only; no automatic receive hook.
-- Subject and body text are sent only to the local x64 worker over the local
-  named pipe once inference integration is complete.
-- No sender address, transport headers, attachments, or raw RFC822 message.
-- No external inference API.
-- No Bayes training, evaluation-label registration, or production verdict
-  changes.
-- Keep this experiment in shadow/manual mode until a Japanese business-mail
-  evaluation shows acceptable false-positive behavior.
+Optional model path:
+```powershell
+.\build-x64\Release\AntiSpamAI.exe --classify-file .\sample-mail.txt --model-dir D:\models\tanaos-spam-detection-v1
+```
 
-## Current status
+The command prints SPAM/NOT_SPAM, both probabilities, and inference time. Input is limited to 1 MiB and 512 tokens.
 
-This first step only pins and retrieves model assets. ONNX Runtime inference,
-WordPiece tokenization in the native worker, a manual test entry point, and
-result display are still to be implemented and tested. Do not treat a
-successful model download as a working AI classifier.
+## Safety boundaries
+- Manual CLI only; no automatic receive hook and no Becky! UI integration yet.
+- No message is moved/deleted; no Bayes training or evaluation-label writes.
+- No sender address, transport headers, attachments, or raw RFC822 data are required.
+- No external inference API; inference runs locally on CPU.
+- Native WordPiece tokenization is a minimal implementation and must be checked against the reference tokenizer before production use.
