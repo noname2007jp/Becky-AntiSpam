@@ -17,19 +17,21 @@ The x64 CMake configuration downloads the pinned CPU ONNX Runtime NuGet package 
 ```powershell
 cmake -S . -B build-x64 -A x64
 cmake --build build-x64 --config Release
-.\tools\ai-experiment\download-model.ps1
+.	oolsai-experimentdownload-model.ps1
 ```
 
+The release output requires **both** `AntiSpamAI.exe` and the matching `onnxruntime.dll` from the same build. Keep these two files in the same directory when running the executable. The GitHub Actions artifact `BeckyAntiSpam-AI-x64` packages both files. Do not substitute an older ONNX Runtime DLL from another application or from the Becky! plugin directory.
+
 ## Manual test
-Create a UTF-8 text file containing the subject and body, then run:
+Create a UTF-8 text file containing the subject and body, then run from the release output directory:
 
 ```powershell
-.\build-x64\Release\AntiSpamAI.exe --classify-file .\sample-mail.txt
+.AntiSpamAI.exe --classify-file .\sample-mail.txt
 ```
 
 Optional model path:
 ```powershell
-.\build-x64\Release\AntiSpamAI.exe --classify-file .\sample-mail.txt --model-dir D:\models\tanaos-spam-detection-v1
+.AntiSpamAI.exe --classify-file .\sample-mail.txt --model-dir D:\models\tanaos-spam-detection-v1
 ```
 
 The command prints SPAM/NOT_SPAM, both probabilities, and inference time. Input is limited to 1 MiB and 512 tokens.
