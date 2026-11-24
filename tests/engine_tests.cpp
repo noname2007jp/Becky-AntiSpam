@@ -418,6 +418,7 @@ int main() {
 
     StoreStats stats;
     assert(store.get_stats(stats, &error));
+    assert(stats.schema_version == 7);
     assert(stats.spam_samples == 1 && stats.ham_samples == 2);
     assert(stats.training_receipts == 3);
     assert(stats.vocabulary_size >= 5);
@@ -495,6 +496,12 @@ int main() {
     assert(reopened.load_model(restored, &error));
     assert(restored.spam_samples() == 1);
     assert(restored.ham_samples() == 2);
+    StoreStats reopened_store_stats;
+    assert(reopened.get_stats(reopened_store_stats, &error));
+    assert(reopened_store_stats.schema_version == 7);
+    assert(reopened_store_stats.spam_samples == 1);
+    assert(reopened_store_stats.ham_samples == 2);
+    assert(reopened_store_stats.training_receipts == 3);
     EvaluationStats reopened_evaluation;
     assert(reopened.get_evaluation_stats(reopened_evaluation, &error));
     assert(reopened_evaluation.pending == 0);
@@ -556,6 +563,42 @@ int main() {
     std::filesystem::remove(migration_path);
     std::filesystem::remove(migration_path + "-wal");
     std::filesystem::remove(migration_path + "-shm");
+
+    // A future schema must be rejected without deleting or rewriting its data.
+    const auto future_path = (temp / "becky_antispam_future_schema.sqlite3").string();
+    std::filesystem::remove(future_path);
+    std::filesystem::remove(future_path + "-wal");
+    std::filesystem::remove(future_path + "-shm");
+    sqlite3* future_db = nullptr;
+    assert(sqlite3_open(future_path.c_str(), &future_db) == SQLITE_OK);
+    assert(sqlite3_exec(future_db,
+        "CREATE TABLE meta (key TEXT PRIMARY KEY,value INTEGER NOT NULL);"
+        "INSERT INTO meta(key,value) VALUES('ham_samples',9);"
+        "PRAGMA user_version=8;", nullptr, nullptr, nullptr) == SQLITE_OK);
+    assert(sqlite3_close(future_db) == SQLITE_OK);
+    {
+        SqliteStore future_store(future_path);
+        assert(!future_store.open(&error));
+        assert(error.find("未対応のデータベーススキーマ") != std::string::npos);
+    }
+    future_db = nullptr;
+    assert(sqlite3_open(future_path.c_str(), &future_db) == SQLITE_OK);
+    sqlite3_stmt* preserved = nullptr;
+    assert(sqlite3_prepare_v2(future_db,
+        "SELECT value FROM meta WHERE key='ham_samples'", -1, &preserved, nullptr) == SQLITE_OK);
+    assert(sqlite3_step(preserved) == SQLITE_ROW);
+    assert(sqlite3_column_int(preserved, 0) == 9);
+    sqlite3_finalize(preserved);
+    sqlite3_stmt* future_version = nullptr;
+    assert(sqlite3_prepare_v2(future_db, "PRAGMA user_version", -1,
+                              &future_version, nullptr) == SQLITE_OK);
+    assert(sqlite3_step(future_version) == SQLITE_ROW);
+    assert(sqlite3_column_int(future_version, 0) == 8);
+    sqlite3_finalize(future_version);
+    sqlite3_close(future_db);
+    std::filesystem::remove(future_path);
+    std::filesystem::remove(future_path + "-wal");
+    std::filesystem::remove(future_path + "-shm");
 
     const auto capped_path = (temp / "becky_antispam_vocab_cap.sqlite3").string();
     std::filesystem::remove(capped_path);
