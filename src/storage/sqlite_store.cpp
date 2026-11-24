@@ -147,6 +147,20 @@ bool SqliteStore::open(std::string* error) {
         close();
         return false;
     }
+
+    // Preserve a recoverable snapshot before changing any existing database.
+    // Fresh databases (version 0) do not contain user data and need no backup.
+    if (schema_version > 0 && schema_version < 7) {
+        const auto backup_stamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        const std::string backup_path = database_path_ +
+            ".pre-migration-" + std::to_string(backup_stamp) + ".bak";
+        if (!backup_to(backup_path, error)) {
+            close();
+            return false;
+        }
+    }
+
     if (schema_version == 0 && !exec(db_, "PRAGMA user_version=1", error)) {
         close();
         return false;
