@@ -734,6 +734,14 @@ bool SqliteStore::get_stats(StoreStats& stats, std::string* error) const {
         return false;
     }
     stats = {};
+    {
+        Statement version(db_, "PRAGMA user_version");
+        if (!version.ok() || sqlite3_step(version.get()) != SQLITE_ROW) {
+            set_error(db_, error, "DBスキーマバージョンを取得できません");
+            return false;
+        }
+        stats.schema_version = sqlite3_column_int(version.get(), 0);
+    }
     Statement meta(db_, "SELECT key,value FROM meta WHERE key IN ('spam_samples','ham_samples')");
     if (!meta.ok()) { set_error(db_, error, "統計SQLを準備できません"); return false; }
     int rc;
