@@ -9,6 +9,7 @@
 #include <cassert>
 #include <filesystem>
 #include <iostream>
+#include <sqlite3.h>
 
 using namespace beckyas;
 
@@ -252,6 +253,35 @@ int main() {
     assert(stats.training_receipts == 3);
     assert(stats.vocabulary_size >= 5);
 
+    // Evaluation metrics retain the prediction made before the user confirms a label.
+    const std::string eval_spam_hit(64, 'e');
+    const std::string eval_spam_review(64, 'f');
+    const std::string eval_spam_miss(64, 'g');
+    const std::string eval_ham_false_positive(64, 'h');
+    const std::string eval_ham_hit(64, 'i');
+    const std::string eval_pending(64, 'j');
+    assert(store.record_evaluation_prediction(eval_spam_hit, Verdict::Spam, 80, 0.99, 2, 5, &error));
+    assert(store.complete_evaluation(eval_spam_hit, true, &error));
+    assert(store.record_evaluation_prediction(eval_spam_review, Verdict::Review, 40, 0.80, 2, 5, &error));
+    assert(store.complete_evaluation(eval_spam_review, true, &error));
+    assert(store.record_evaluation_prediction(eval_spam_miss, Verdict::Ham, 0, 0.01, 2, 5, &error));
+    assert(store.complete_evaluation(eval_spam_miss, true, &error));
+    assert(store.record_evaluation_prediction(eval_ham_false_positive, Verdict::Spam, 70, 0.95, 2, 5, &error));
+    assert(store.complete_evaluation(eval_ham_false_positive, false, &error));
+    assert(store.record_evaluation_prediction(eval_ham_hit, Verdict::Ham, 0, 0.02, 2, 5, &error));
+    assert(store.complete_evaluation(eval_ham_hit, false, &error));
+    assert(store.record_evaluation_prediction(eval_pending, Verdict::Review, 35, 0.65, 2, 5, &error));
+    EvaluationStats evaluation_stats;
+    assert(store.get_evaluation_stats(evaluation_stats, &error));
+    assert(evaluation_stats.pending == 1);
+    assert(evaluation_stats.labeled == 5);
+    assert(evaluation_stats.spam_as_ham == 1);
+    assert(evaluation_stats.spam_as_review == 1);
+    assert(evaluation_stats.spam_as_spam == 1);
+    assert(evaluation_stats.ham_as_ham == 1);
+    assert(evaluation_stats.ham_as_review == 0);
+    assert(evaluation_stats.ham_as_spam == 1);
+
     std::string integrity;
     assert(store.integrity_check(integrity, &error));
     assert(integrity == "ok");
@@ -264,6 +294,10 @@ int main() {
     assert(reopened.load_model(restored, &error));
     assert(restored.spam_samples() == 1);
     assert(restored.ham_samples() == 2);
+    EvaluationStats reopened_evaluation;
+    assert(reopened.get_evaluation_stats(reopened_evaluation, &error));
+    assert(reopened_evaluation.pending == 1);
+    assert(reopened_evaluation.labeled == 5);
     assert(reopened.compact(3, 1, 365, &error));
     assert(reopened.integrity_check(integrity, &error));
     reopened.close();
@@ -273,6 +307,32 @@ int main() {
     std::filesystem::remove(db_path + "-shm");
     std::filesystem::remove(backup_path);
     std::filesystem::remove(db_path + ".precompact.bak");
+
+    // Existing schema-v2 databases must be upgraded in place to schema v3.
+    const auto migration_path = (temp / "becky_antispam_schema_v2.sqlite3").string();
+    std::filesystem::remove(migration_path);
+    std::filesystem::remove(migration_path + "-wal");
+    std::filesystem::remove(migration_path + "-shm");
+    sqlite3* legacy_db = nullptr;
+    assert(sqlite3_open(migration_path.c_str(), &legacy_db) == SQLITE_OK);
+    assert(sqlite3_exec(legacy_db,
+        "CREATE TABLE evaluation_labels ("
+        "message_hash TEXT PRIMARY KEY,label INTEGER NOT NULL,labeled_utc INTEGER NOT NULL);"
+        "PRAGMA user_version=2;", nullptr, nullptr, nullptr) == SQLITE_OK);
+    assert(sqlite3_close(legacy_db) == SQLITE_OK);
+    {
+        SqliteStore migrated(migration_path);
+        assert(migrated.open(&error));
+        EvaluationStats migrated_evaluation;
+        assert(migrated.get_evaluation_stats(migrated_evaluation, &error));
+        assert(migrated_evaluation.pending == 0);
+        assert(migrated_evaluation.labeled == 0);
+        assert(migrated.integrity_check(integrity, &error));
+        assert(integrity == "ok");
+    }
+    std::filesystem::remove(migration_path);
+    std::filesystem::remove(migration_path + "-wal");
+    std::filesystem::remove(migration_path + "-shm");
 
     const auto capped_path = (temp / "becky_antispam_vocab_cap.sqlite3").string();
     std::filesystem::remove(capped_path);
@@ -326,13 +386,27 @@ int main() {
             "Subject: 会議資料\r\n"
             "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
             "議事録と予定を共有します";
-        ParsedMail pipeline_parsed;
+        ParsedMail spam_parsed, ham_parsed;
         Result spam_result, ham_result;
-        assert(pipeline.analyze(new_spam, pipeline_parsed, spam_result, &error));
-        assert(pipeline.analyze(new_ham, pipeline_parsed, ham_result, &error));
+        assert(pipeline.analyze(new_spam, spam_parsed, spam_result, &error));
+        assert(pipeline.analyze(new_ham, ham_parsed, ham_result, &error));
         assert(spam_result.bayes_probability > ham_result.bayes_probability);
-        assert(pipeline.train(new_spam, true, nullptr, &error) == TrainStatus::Trained);
-        assert(pipeline.train(new_spam, true, nullptr, &error) == TrainStatus::Duplicate);
+        assert(pipeline.record_prediction(new_spam, spam_result, &error));
+        assert(pipeline.record_prediction(new_ham, ham_result, &error));
+        // Simulate the header inserted by BKC_OnBeforeFilter2 before Becky! saves the mail.
+        const auto saved_spam = "X-AntiSpam-Classification: Spam\r\n" + new_spam + "\r\n";
+        const auto saved_ham = "X-AntiSpam-Classification: Ham\r\n" + new_ham + "\r\n";
+        assert(pipeline.train(saved_spam, true, nullptr, &error) == TrainStatus::Trained);
+        assert(pipeline.train(saved_ham, false, nullptr, &error) == TrainStatus::Trained);
+        EvaluationStats pipeline_evaluation;
+        assert(pipeline.get_evaluation_stats(pipeline_evaluation, &error));
+        assert(pipeline_evaluation.pending == 0);
+        assert(pipeline_evaluation.labeled == 2);
+        assert(pipeline_evaluation.spam_as_spam + pipeline_evaluation.spam_as_review +
+               pipeline_evaluation.spam_as_ham == 1);
+        assert(pipeline_evaluation.ham_as_ham + pipeline_evaluation.ham_as_review +
+               pipeline_evaluation.ham_as_spam == 1);
+        assert(pipeline.train(saved_spam, true, nullptr, &error) == TrainStatus::Duplicate);
     }
     std::filesystem::remove(pipeline_path);
     std::filesystem::remove(pipeline_path + "-wal");
