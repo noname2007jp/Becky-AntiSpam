@@ -539,6 +539,30 @@ int main() {
         assert(migrated.integrity_check(integrity, &error));
         assert(integrity == "ok");
     }
+    std::filesystem::path migration_backup;
+    const std::string migration_backup_prefix =
+        "becky_antispam_schema_v2.sqlite3.pre-migration-";
+    for (const auto& entry : std::filesystem::directory_iterator(temp)) {
+        const auto name = entry.path().filename().string();
+        if (name.rfind(migration_backup_prefix, 0) == 0 &&
+            entry.path().extension() == ".bak") {
+            migration_backup = entry.path();
+            break;
+        }
+    }
+    assert(!migration_backup.empty());
+    assert(std::filesystem::file_size(migration_backup) > 0);
+    {
+        sqlite3* backup_db = nullptr;
+        assert(sqlite3_open(migration_backup.string().c_str(), &backup_db) == SQLITE_OK);
+        sqlite3_stmt* backup_version = nullptr;
+        assert(sqlite3_prepare_v2(backup_db, "PRAGMA user_version", -1,
+                                  &backup_version, nullptr) == SQLITE_OK);
+        assert(sqlite3_step(backup_version) == SQLITE_ROW);
+        assert(sqlite3_column_int(backup_version, 0) == 2);
+        sqlite3_finalize(backup_version);
+        sqlite3_close(backup_db);
+    }
     {
         sqlite3* migrated_db = nullptr;
         assert(sqlite3_open(migration_path.c_str(), &migrated_db) == SQLITE_OK);
@@ -563,6 +587,7 @@ int main() {
     std::filesystem::remove(migration_path);
     std::filesystem::remove(migration_path + "-wal");
     std::filesystem::remove(migration_path + "-shm");
+    std::filesystem::remove(migration_backup);
 
     // A future schema must be rejected without deleting or rewriting its data.
     const auto future_path = (temp / "becky_antispam_future_schema.sqlite3").string();
