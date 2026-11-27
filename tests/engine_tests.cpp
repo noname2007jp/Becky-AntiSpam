@@ -589,6 +589,58 @@ int main() {
     std::filesystem::remove(migration_path + "-shm");
     std::filesystem::remove(migration_backup);
 
+    // A stale version marker can coexist with already-upgraded columns.
+    // Migration must detect existing columns, preserve records, and repair user_version.
+    const auto drift_path = (temp / "becky_antispam_schema_drift.sqlite3").string();
+    std::filesystem::remove(drift_path);
+    std::filesystem::remove(drift_path + "-wal");
+    std::filesystem::remove(drift_path + "-shm");
+    const std::string drift_backup_prefix = "becky_antispam_schema_drift.sqlite3.pre-migration-";
+    {
+        SqliteStore drifted(drift_path);
+        assert(drifted.open(&error));
+        assert(drifted.train_once(std::string(64, 'k'), "drift ham sample", false, &error) == TrainStatus::Trained);
+        assert(drifted.train_once(std::string(64, 'l'), "drift spam sample", true, &error) == TrainStatus::Trained);
+        assert(drifted.record_evaluation_prediction(std::string(64, 'm'), Verdict::Review,
+            40, 0.75, 1, 1, &error, Verdict::Spam, 60));
+        drifted.close();
+    }
+    sqlite3* drift_db = nullptr;
+    assert(sqlite3_open(drift_path.c_str(), &drift_db) == SQLITE_OK);
+    assert(sqlite3_exec(drift_db, "PRAGMA user_version=2;", nullptr, nullptr, nullptr) == SQLITE_OK);
+    assert(sqlite3_close(drift_db) == SQLITE_OK);
+    {
+        SqliteStore repaired(drift_path);
+        assert(repaired.open(&error));
+        StoreStats repaired_stats;
+        assert(repaired.get_stats(repaired_stats, &error));
+        assert(repaired_stats.schema_version == 7);
+        assert(repaired_stats.ham_samples == 1);
+        assert(repaired_stats.spam_samples == 1);
+        assert(repaired_stats.training_receipts == 2);
+        EvaluationStats repaired_evaluation;
+        assert(repaired.get_evaluation_stats(repaired_evaluation, &error));
+        assert(repaired_evaluation.pending == 1);
+        assert(repaired.integrity_check(integrity, &error));
+        assert(integrity == "ok");
+        repaired.close();
+    }
+    std::filesystem::path drift_backup;
+    for (const auto& entry : std::filesystem::directory_iterator(temp)) {
+        const auto name = entry.path().filename().string();
+        if (name.rfind(drift_backup_prefix, 0) == 0 &&
+            entry.path().extension() == ".bak") {
+            drift_backup = entry.path();
+            break;
+        }
+    }
+    assert(!drift_backup.empty());
+    assert(std::filesystem::file_size(drift_backup) > 0);
+    std::filesystem::remove(drift_path);
+    std::filesystem::remove(drift_path + "-wal");
+    std::filesystem::remove(drift_path + "-shm");
+    std::filesystem::remove(drift_backup);
+
     // A future schema must be rejected without deleting or rewriting its data.
     const auto future_path = (temp / "becky_antispam_future_schema.sqlite3").string();
     std::filesystem::remove(future_path);
