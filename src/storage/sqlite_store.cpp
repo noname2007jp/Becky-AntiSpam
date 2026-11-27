@@ -47,6 +47,37 @@ void set_error(sqlite3* db, std::string* error, const char* fallback) {
     if (error) *error = db ? sqlite3_errmsg(db) : fallback;
 }
 
+bool has_column(sqlite3* db, const char* table, const char* column,
+                bool& exists, std::string* error) {
+    const std::string sql = std::string("PRAGMA table_info(") + table + ")";
+    Statement statement(db, sql.c_str());
+    if (!statement.ok()) {
+        set_error(db, error, "テーブル定義を確認できません");
+        return false;
+    }
+    exists = false;
+    int rc = SQLITE_ROW;
+    while ((rc = sqlite3_step(statement.get())) == SQLITE_ROW) {
+        const auto* name = reinterpret_cast<const char*>(sqlite3_column_text(statement.get(), 1));
+        if (name && std::string(name) == column) exists = true;
+    }
+    if (rc != SQLITE_DONE) {
+        set_error(db, error, "テーブル定義の読み取りに失敗しました");
+        return false;
+    }
+    return true;
+}
+
+bool add_column_if_missing(sqlite3* db, const char* table, const char* column,
+                           const char* definition, std::string* error) {
+    bool exists = false;
+    if (!has_column(db, table, column, exists, error)) return false;
+    if (exists) return true;
+    const std::string sql = std::string("ALTER TABLE ") + table +
+        " ADD COLUMN " + definition + ";";
+    return exec(db, sql.c_str(), error);
+}
+
 bool valid_hash(const std::string& hash) {
     if (hash.size() != 64) return false;
     return std::all_of(hash.begin(), hash.end(), [](unsigned char c) {
@@ -147,6 +178,20 @@ bool SqliteStore::open(std::string* error) {
         close();
         return false;
     }
+
+    // Preserve a recoverable snapshot before changing any existing database.
+    // Fresh databases (version 0) do not contain user data and need no backup.
+    if (schema_version > 0 && schema_version < 7) {
+        const auto backup_stamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        const std::string backup_path = database_path_ +
+            ".pre-migration-" + std::to_string(backup_stamp) + ".bak";
+        if (!backup_to(backup_path, error)) {
+            close();
+            return false;
+        }
+    }
+
     if (schema_version == 0 && !exec(db_, "PRAGMA user_version=1", error)) {
         close();
         return false;
@@ -183,49 +228,47 @@ bool SqliteStore::open(std::string* error) {
         }
     }
     if (schema_version < 4) {
-        // Keep the two-column migration atomic. If any statement fails, closing
-        // the connection rolls back instead of leaving a partially upgraded DB.
-        if (!exec(db_,
-            "BEGIN IMMEDIATE;"
-            "ALTER TABLE evaluation_results ADD COLUMN comparison_score INTEGER NOT NULL DEFAULT 0;"
-            "ALTER TABLE evaluation_results ADD COLUMN comparison_verdict INTEGER "
-            "CHECK(comparison_verdict IS NULL OR comparison_verdict IN (0,1,2));"
-            "PRAGMA user_version=4;"
-            "COMMIT;", error)) {
+        if (!exec(db_, "BEGIN IMMEDIATE;", error) ||
+            !add_column_if_missing(db_, "evaluation_results", "comparison_score",
+                "comparison_score INTEGER NOT NULL DEFAULT 0", error) ||
+            !add_column_if_missing(db_, "evaluation_results", "comparison_verdict",
+                "comparison_verdict INTEGER CHECK(comparison_verdict IS NULL OR comparison_verdict IN (0,1,2))", error) ||
+            !exec(db_, "PRAGMA user_version=4; COMMIT;", error)) {
+            rollback(db_);
             close();
             return false;
         }
     }
     if (schema_version < 5) {
-        if (!exec(db_,
-            "BEGIN IMMEDIATE;"
-            "ALTER TABLE evaluation_results ADD COLUMN diagnostic_case INTEGER NOT NULL DEFAULT 0;"
-            "PRAGMA user_version=5;"
-            "COMMIT;", error)) {
+        if (!exec(db_, "BEGIN IMMEDIATE;", error) ||
+            !add_column_if_missing(db_, "evaluation_results", "diagnostic_case",
+                "diagnostic_case INTEGER NOT NULL DEFAULT 0", error) ||
+            !exec(db_, "PRAGMA user_version=5; COMMIT;", error)) {
+            rollback(db_);
             close();
             return false;
         }
     }
     if (schema_version < 6) {
-        if (!exec(db_,
-            "BEGIN IMMEDIATE;"
-            "ALTER TABLE evaluation_results ADD COLUMN comparison_v2_verdict INTEGER "
-            "CHECK(comparison_v2_verdict IS NULL OR comparison_v2_verdict IN (0,1,2));"
-            "PRAGMA user_version=6;"
-            "COMMIT;", error)) {
+        if (!exec(db_, "BEGIN IMMEDIATE;", error) ||
+            !add_column_if_missing(db_, "evaluation_results", "comparison_v2_verdict",
+                "comparison_v2_verdict INTEGER CHECK(comparison_v2_verdict IS NULL OR comparison_v2_verdict IN (0,1,2))", error) ||
+            !exec(db_, "PRAGMA user_version=6; COMMIT;", error)) {
+            rollback(db_);
             close();
             return false;
         }
     }
     if (schema_version < 7) {
-        if (!exec(db_,
-            "BEGIN IMMEDIATE;"
-            "ALTER TABLE evaluation_results ADD COLUMN bayes_corr_probability REAL "
-            "CHECK(bayes_corr_probability IS NULL OR (bayes_corr_probability>=0.0 AND bayes_corr_probability<=1.0));"
-            "ALTER TABLE evaluation_results ADD COLUMN bayes_corr_evidence REAL;"
-            "ALTER TABLE evaluation_results ADD COLUMN bayes_corr_features INTEGER NOT NULL DEFAULT 0 CHECK(bayes_corr_features>=0);"
-            "PRAGMA user_version=7;"
-            "COMMIT;", error)) {
+        if (!exec(db_, "BEGIN IMMEDIATE;", error) ||
+            !add_column_if_missing(db_, "evaluation_results", "bayes_corr_probability",
+                "bayes_corr_probability REAL CHECK(bayes_corr_probability IS NULL OR (bayes_corr_probability>=0.0 AND bayes_corr_probability<=1.0))", error) ||
+            !add_column_if_missing(db_, "evaluation_results", "bayes_corr_evidence",
+                "bayes_corr_evidence REAL", error) ||
+            !add_column_if_missing(db_, "evaluation_results", "bayes_corr_features",
+                "bayes_corr_features INTEGER NOT NULL DEFAULT 0 CHECK(bayes_corr_features>=0)", error) ||
+            !exec(db_, "PRAGMA user_version=7; COMMIT;", error)) {
+            rollback(db_);
             close();
             return false;
         }
@@ -734,6 +777,14 @@ bool SqliteStore::get_stats(StoreStats& stats, std::string* error) const {
         return false;
     }
     stats = {};
+    {
+        Statement version(db_, "PRAGMA user_version");
+        if (!version.ok() || sqlite3_step(version.get()) != SQLITE_ROW) {
+            set_error(db_, error, "DBスキーマバージョンを取得できません");
+            return false;
+        }
+        stats.schema_version = sqlite3_column_int(version.get(), 0);
+    }
     Statement meta(db_, "SELECT key,value FROM meta WHERE key IN ('spam_samples','ham_samples')");
     if (!meta.ok()) { set_error(db_, error, "統計SQLを準備できません"); return false; }
     int rc;

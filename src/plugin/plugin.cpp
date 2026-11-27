@@ -154,6 +154,19 @@ bool initialize_plugin() {
         OutputDebugStringW((L"BeckyAntiSpam: " + path_error + L"\n").c_str());
         return false;
     }
+    const auto portable_data_dir = beckyas::plugin::preferred_data_directory();
+    const auto legacy_data_dir = beckyas::plugin::legacy_data_directory();
+    const bool active_is_portable = !portable_data_dir.empty() && g_data_dir == portable_data_dir;
+    const auto alternate_data_dir = active_is_portable ? legacy_data_dir : portable_data_dir;
+    std::error_code alternate_db_error;
+    const bool alternate_db_exists = !alternate_data_dir.empty() &&
+        alternate_data_dir != g_data_dir &&
+        std::filesystem::exists(alternate_data_dir / L"training.sqlite3", alternate_db_error) &&
+        !alternate_db_error;
+    operational_log("INFO", std::string("database location=") +
+        (active_is_portable ? "portable" : "appdata") +
+        " alternate_database=" + (alternate_db_exists ? "present" : "absent"));
+
     const std::wstring db_path = (g_data_dir / L"training.sqlite3").wstring();
     const int db_bytes = WideCharToMultiByte(CP_UTF8, 0, db_path.c_str(), -1, nullptr, 0, nullptr, nullptr);
     if (db_bytes <= 1) return false;
@@ -249,6 +262,42 @@ bool initialize_plugin() {
         g_pipeline.reset(); g_store.reset(); return false;
     }
     operational_log("INFO", "pipeline initialized");
+
+    // Read-only startup audit: expose the active DB state without changing
+    // training data or evaluation records.
+    beckyas::StoreStats store_stats;
+    if (g_store->get_stats(store_stats, &error)) {
+        operational_log("INFO", std::string("database audit schema_version=") +
+            std::to_string(store_stats.schema_version) +
+            " ham_samples=" + std::to_string(store_stats.ham_samples) +
+            " spam_samples=" + std::to_string(store_stats.spam_samples) +
+            " vocabulary=" + std::to_string(store_stats.vocabulary_size) +
+            " training_receipts=" + std::to_string(store_stats.training_receipts) +
+            " database_bytes=" + std::to_string(store_stats.database_bytes));
+    } else {
+        operational_log("WARN", "database audit stats failed: " + error);
+    }
+
+    beckyas::EvaluationStats evaluation_stats;
+    if (g_store->get_evaluation_stats(evaluation_stats, &error)) {
+        operational_log("INFO", std::string("database audit evaluation pending=") +
+            std::to_string(evaluation_stats.pending) +
+            " labeled=" + std::to_string(evaluation_stats.labeled) +
+            " symbol_labeled=" + std::to_string(evaluation_stats.symbol_labeled) +
+            " symbol_v2_labeled=" + std::to_string(evaluation_stats.symbol_v2_labeled));
+    } else {
+        operational_log("WARN", "database audit evaluation stats failed: " + error);
+    }
+
+    if (g_log_settings.test_mode) {
+        std::string integrity;
+        if (g_store->integrity_check(integrity, &error)) {
+            operational_log("INFO", "database audit integrity=ok");
+        } else {
+            operational_log("ERROR", "database audit integrity failed: " +
+                (error.empty() ? integrity : error));
+        }
+    }
     return true;
 }
 

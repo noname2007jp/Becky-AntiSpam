@@ -13,6 +13,7 @@ namespace beckyas {
 enum class TrainStatus { Trained, Reclassified, Duplicate, Error };
 
 struct StoreStats {
+    int schema_version = 0;
     std::size_t spam_samples = 0;
     std::size_t ham_samples = 0;
     std::size_t vocabulary_size = 0;
