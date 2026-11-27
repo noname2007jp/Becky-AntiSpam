@@ -1,0 +1,45 @@
+name: Phase 1 database audit build
+
+on:
+  push:
+    branches:
+      - phase1/db-audit-safe-schema
+  pull_request:
+    branches:
+      - feature/shadow-bayes-spamhaus-design
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (Win32 / x86)
+        run: cmake -S . -B build -A Win32
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Upload Win32 plugin DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: BeckyAntiSpam-Win32
+          path: build/Release/BeckyAntiSpam.dll
+          if-no-files-found: error
+
+  build-ai-worker-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (x64 AI worker)
+        run: cmake -S . -B build-x64 -A x64
+      - name: Build
+        run: cmake --build build-x64 --config Release
+      - name: Test
+        run: ctest --test-dir build-x64 -C Release --output-on-failure
+      - name: Upload x64 AI worker
+        uses: actions/upload-artifact@v4
+        with:
+          name: BeckyAntiSpam-AI-x64
+          path: build-x64/Release/AntiSpamAI.exe
+          if-no-files-found: error
